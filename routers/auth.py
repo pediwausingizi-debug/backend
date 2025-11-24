@@ -109,24 +109,24 @@ def update_user(
     return UserRead.from_orm(user)
 # -------------------------------------------------------------------
 # CURRENT USER (Supports Firebase token OR backend JWT)
-# @router.get("/me", response_model=UserRead)
+#@router.get("/me", response_model=UserRead)
+@router.get("/me", response_model=UserRead)
 def me(authorization: str = Header(None), db: Session = Depends(get_db)):
-
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
     token = authorization.split(" ")[1]
 
-    # Try Firebase first
+    # 1️⃣ Try Firebase token
     firebase_data = verify_firebase_token(token)
     if firebase_data:
-        firebase_uid = firebase_data["firebase_uid"]
+        firebase_uid = firebase_data.get("user_id") or firebase_data.get("sub")
         email = firebase_data.get("email")
         name = email.split("@")[0] if email else "User"
 
         user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
 
-        # AUTO-CREATE USER IF NOT EXISTS
+        # auto create if missing
         if not user:
             user = User(
                 firebase_uid=firebase_uid,
@@ -140,7 +140,7 @@ def me(authorization: str = Header(None), db: Session = Depends(get_db)):
 
         return UserRead.from_orm(user)
 
-    # Try backend JWT
+    # 2️⃣ Try backend JWT
     jwt_data = verify_backend_jwt(token)
     if jwt_data:
         email = jwt_data["email"]
