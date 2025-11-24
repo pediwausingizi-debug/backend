@@ -6,3 +6,5 @@ pydantic
 python-jose
 requests
 psycopg2-binary
+pydantic[email]
+email-validator
