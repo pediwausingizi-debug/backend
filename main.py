@@ -1,5 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+import firebase_init 
+
 from routers import auth, livestock, crops, inventory, finance, workers, notifications, reports, dashboard
 
 app = FastAPI(title="Farm Management System API", version="1.0.0")
@@ -9,10 +12,12 @@ origins = [
     "http://localhost:5173",
     "http://localhost:3000",
     "http://127.0.0.1:5173",
+
     "https://farmxpat.com",
     "https://www.farmxpat.com",
-    "https://vercel.app",
-    "https://*.vercel.app",
+
+    # If your frontend is deployed elsewhere (Vercel), add exact domain:
+    # "https://yourapp.vercel.app",
 ]
 
 app.add_middleware(
@@ -23,6 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# API routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(livestock.router, prefix="/api/livestock", tags=["livestock"])

@@ -1,152 +1,119 @@
-# routers/auth.py
-from fastapi import APIRouter, HTTPException, Depends, status, Header
+from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from schemas import UserUpdate
+from firebase_admin import auth as firebase_auth
 from database import get_db
 from models import User
-from schemas import UserRead
-from utils import (
-    verify_firebase_token,
-    verify_backend_jwt,
-)
+from schemas import UserRead, UserUpdate
+from utils import create_backend_jwt, get_current_user
 
 router = APIRouter(tags=["auth"])
 
 
-# -------------------------------------------------------------------
-# REQUEST MODELS
-# -------------------------------------------------------------------
-class IdTokenRequest(BaseModel):
-    id_token: str
+# ---------------------------------------------
+# Request model (Google Login)
+# ---------------------------------------------
+class GoogleLoginRequest(BaseModel):
+    google_token: str
 
 
-# -------------------------------------------------------------------
-# FIREBASE LOGIN / REGISTER
-# -------------------------------------------------------------------
-@router.post("/firebase", response_model=UserRead)
-def firebase_login(req: IdTokenRequest, db: Session = Depends(get_db)):
-    """
-    Accepts a Firebase ID token.
-    Verifies token, upserts user, and returns user record.
-    """
+# ---------------------------------------------
+# Google Login -> Backend JWT
+# ---------------------------------------------
+@router.post("/google-login", response_model=dict)
+def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
+    try:
+        # 1. Verify Google ID token via Firebase Admin
+        decoded = firebase_auth.verify_id_token(req.google_token)
 
-    token_data = verify_firebase_token(req.id_token)
-    if not token_data:
-        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+        email = decoded.get("email")
+        name = decoded.get("name") or (email.split("@")[0] if email else "Unknown")
+        picture = decoded.get("picture")
+        google_uid = decoded.get("uid")
 
-    firebase_uid = token_data["firebase_uid"]
-    email = token_data.get("email")
-    name = email.split("@")[0] if email else "Unnamed User"
+        if not email:
+            raise HTTPException(status_code=400, detail="Google token missing email")
 
-    # 1. Look up by firebase UID
-    user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
-
-    # 2. Or lookup by email (for older accounts)
-    if not user and email:
+        # 2. Lookup user by email
         user = db.query(User).filter(User.email == email).first()
 
-    # 3. Create if missing
-    if not user:
-        user = User(
-            email=email or f"{firebase_uid}@no-email",
-            firebase_uid=firebase_uid,
-            name=name,
-            role="Worker",
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    else:
-        # Sync updated email/name if changed
-        updated = False
-        if email and user.email != email:
-            user.email = email
-            updated = True
-        if name and user.name != name:
-            user.name = name
-            updated = True
-        if not user.firebase_uid:
-            user.firebase_uid = firebase_uid
-            updated = True
-
-        if updated:
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-
-    return UserRead.from_orm(user)
-
-@router.put("/update", response_model=UserRead)
-def update_user(
-    payload: UserUpdate,
-    authorization: str = Header(None),
-    db: Session = Depends(get_db)
-):
-    # Reuse the same firebase auth flow
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
-
-    token = authorization.split(" ")[1]
-    payload_token = verify_firebase_token(token)
-
-    firebase_uid = payload_token.get("sub") or payload_token.get("user_id")
-    if not firebase_uid:
-        raise HTTPException(status_code=401, detail="Invalid Firebase token payload")
-
-    user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # Update fields
-    for field, value in payload.dict(exclude_none=True).items():
-        setattr(user, field, value)
-
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    return UserRead.from_orm(user)
-# -------------------------------------------------------------------
-# CURRENT USER (Supports Firebase token OR backend JWT)
-#@router.get("/me", response_model=UserRead)
-@router.get("/me", response_model=UserRead)
-def me(authorization: str = Header(None), db: Session = Depends(get_db)):
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
-
-    token = authorization.split(" ")[1]
-
-    # 1️⃣ Try Firebase token
-    firebase_data = verify_firebase_token(token)
-    if firebase_data:
-        firebase_uid = firebase_data.get("user_id") or firebase_data.get("sub")
-        email = firebase_data.get("email")
-        name = email.split("@")[0] if email else "User"
-
-        user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
-
-        # auto create if missing
+        # 3. Create new user if not found
         if not user:
             user = User(
-                firebase_uid=firebase_uid,
-                email=email or f"{firebase_uid}@no-email",
+                email=email,
                 name=name,
+                picture=picture,
+                firebase_uid=google_uid,
                 role="Worker"
             )
             db.add(user)
             db.commit()
             db.refresh(user)
+        else:
+            # Update name / picture / google_uid if changed
+            updated = False
+            if not user.firebase_uid:
+                user.firebase_uid = google_uid
+                updated = True
+            if name and user.name != name:
+                user.name = name
+                updated = True
+            if picture and user.picture != picture:
+                user.picture = picture
+                updated = True
 
-        return UserRead.from_orm(user)
+            if updated:
+                db.add(user)
+                db.commit()
+                db.refresh(user)
 
-    # 2️⃣ Try backend JWT
-    jwt_data = verify_backend_jwt(token)
-    if jwt_data:
-        email = jwt_data["email"]
-        user = db.query(User).filter(User.email == email).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        return UserRead.from_orm(user)
+        # 4. Generate Backend JWT
+        token = create_backend_jwt(user)
 
-    raise HTTPException(status_code=401, detail="Invalid token")
+        return {
+            "user": UserRead.from_orm(user),
+            "token": token
+        }
+
+    except Exception as e:
+        print("Google login error:", e)
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+
+# ---------------------------------------------
+# Update user profile
+# (Requires backend JWT only)
+# ---------------------------------------------
+@router.put("/update", response_model=UserRead)
+def update_user(
+    payload: UserUpdate,
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    user_in_db = db.query(User).filter(User.id == user["user_id"]).first()
+
+    if not user_in_db:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    for field, value in payload.dict(exclude_none=True).items():
+        setattr(user_in_db, field, value)
+
+    db.add(user_in_db)
+    db.commit()
+    db.refresh(user_in_db)
+
+    return UserRead.from_orm(user_in_db)
+
+
+# ---------------------------------------------
+# Current logged-in user
+# Backend JWT ONLY
+# ---------------------------------------------
+@router.get("/me", response_model=UserRead)
+def me(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    user_in_db = db.query(User).filter(User.id == user["user_id"]).first()
+
+    if not user_in_db:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return UserRead.from_orm(user_in_db)

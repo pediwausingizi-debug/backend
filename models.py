@@ -9,14 +9,20 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
-    firebase_uid = Column(String(255), unique=True, index=True, nullable=False)
+
+    # Firebase UID should be optional since backend JWT will be primary auth
+    firebase_uid = Column(String(255), unique=True, index=True, nullable=True)
+
     name = Column(String(255), nullable=False)
+    picture = Column(String(500), nullable=True)
+
     role = Column(String(50), default="Worker", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     phone = Column(String(50), nullable=True)
     farm_name = Column(String(255), nullable=True)
     farm_location = Column(String(255), nullable=True)
     farm_size = Column(String(50), nullable=True)
+
     crops = relationship("Crop", back_populates="owner", cascade="all, delete-orphan")
     livestock = relationship("Livestock", back_populates="owner", cascade="all, delete-orphan")
     inventory_items = relationship("InventoryItem", back_populates="owner", cascade="all, delete-orphan")
