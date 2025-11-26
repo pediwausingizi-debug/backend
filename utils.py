@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from fastapi import HTTPException, Depends
 from sqlalchemy.orm import Session
-
+from fastapi import Header
 from database import get_db
 from models import User
 
@@ -47,9 +47,10 @@ def verify_backend_jwt(token: str):
 # -------------------------------------------------
 # FastAPI Dependency for Protected Routes
 # -------------------------------------------------
+
 def get_current_user(
     db: Session = Depends(get_db),
-    authorization: str = None
+    authorization: str = Header(None)
 ):
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
@@ -60,17 +61,14 @@ def get_current_user(
 
     token = parts[1]
 
-    # ⛔ IMPORTANT:
-    # Do NOT accept Firebase Google tokens here.
-    # They are only accepted in /auth/google-login.
     jwt_data = verify_backend_jwt(token)
     if not jwt_data:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    # Find the user in DB
     user = db.query(User).filter(User.id == jwt_data["user_id"]).first()
 
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
     return user
+
