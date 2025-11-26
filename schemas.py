@@ -16,7 +16,7 @@ class UserFirebaseCreate(BaseModel):
 
 class UserRead(BaseModel):
     id: int
-    firebase_uid: str
+    firebase_uid: Optional[str] = None
     email: EmailStr
     name: str
     role: str
@@ -27,9 +27,9 @@ class UserRead(BaseModel):
     farm_location: Optional[str] = None
     farm_size: Optional[str] = None
 
-
     class Config:
-        orm_mode = True
+        from_attributes = True
+
         
 class UserUpdate(BaseModel):
     name: Optional[str] = None
@@ -64,7 +64,7 @@ class CropRead(CropBase):
     owner_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ======================
@@ -90,7 +90,7 @@ class LivestockRead(LivestockBase):
     owner_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ======================
@@ -115,7 +115,7 @@ class InventoryRead(InventoryBase):
     owner_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ======================
@@ -140,7 +140,7 @@ class TransactionRead(TransactionBase):
     owner_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ======================
@@ -164,7 +164,7 @@ class NotificationRead(NotificationBase):
     owner_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ======================
@@ -189,4 +189,4 @@ class WorkerRead(WorkerBase):
     owner_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
