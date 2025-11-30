@@ -9,3 +9,5 @@ psycopg2-binary
 pydantic[email]
 email-validator
 firebase-admin
+cloudinary
+redis[async]
