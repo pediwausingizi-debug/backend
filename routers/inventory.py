@@ -9,46 +9,49 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
 
-router = APIRouter()
+router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
 
-# Helper to get actual User object
-def get_db_user(user_data, db):
+# Helper to load user + validate farm
+def get_farm_user(user_data, db):
     db_user = db.query(models.User).filter(models.User.id == user_data["user_id"]).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if not db_user.farm_id:
+        raise HTTPException(status_code=400, detail="User is not assigned to any farm")
+
     return db_user
 
 
 # ---------------------------------------------------------
-# GET /inventory  (cached)
+# GET /inventory  (farm-wide, cached)
 # ---------------------------------------------------------
 @router.get("/", response_model=List[schemas.InventoryRead])
 async def list_inventory(
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    cache_key = f"inventory:list:{uid}"
+    cache_key = f"inventory:list:farm:{farm_id}"
     cached = await cache_get(cache_key)
-
     if cached:
         return cached
 
     items = db.query(models.InventoryItem).filter(
-        models.InventoryItem.owner_id == uid
+        models.InventoryItem.farm_id == farm_id
     ).all()
 
-    payload = [schemas.InventoryRead.model_validate(i).model_dump() for i in items]
+    serialized = [schemas.InventoryRead.model_validate(i).model_dump() for i in items]
 
-    await cache_set(cache_key, payload, expire_seconds=300)
-    return payload
+    await cache_set(cache_key, serialized, expire_seconds=300)
+    return items
 
 
 # ---------------------------------------------------------
-# POST /inventory  (clear list + dashboard caches)
+# POST /inventory  (farm-wide)
 # ---------------------------------------------------------
 @router.post("/", response_model=schemas.InventoryRead, status_code=status.HTTP_201_CREATED)
 async def create_inventory_item(
@@ -56,69 +59,73 @@ async def create_inventory_item(
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    item = models.InventoryItem(**payload.dict(), owner_id=uid)
+    item = models.InventoryItem(
+        **payload.dict(),
+        farm_id=farm_id,
+        added_by=db_user.id
+    )
 
     db.add(item)
     db.commit()
     db.refresh(item)
 
-    await cache_delete(f"inventory:list:{uid}")
-    await cache_delete(f"dashboard:stats:{uid}")
+    # Clear caches
+    await cache_delete(f"inventory:list:farm:{farm_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
     return item
 
 
 # ---------------------------------------------------------
-# GET /inventory/{id} (cached)
+# GET /inventory/{id}  (cached)
 # ---------------------------------------------------------
 @router.get("/{item_id}", response_model=schemas.InventoryRead)
 async def get_inventory_item(
     item_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    cache_key = f"inventory:item:{uid}:{item_id}"
+    cache_key = f"inventory:item:farm:{farm_id}:{item_id}"
     cached = await cache_get(cache_key)
-
     if cached:
         return cached
 
     item = db.query(models.InventoryItem).filter(
         models.InventoryItem.id == item_id,
-        models.InventoryItem.owner_id == uid
+        models.InventoryItem.farm_id == farm_id
     ).first()
 
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    payload = schemas.InventoryRead.model_validate(item).model_dump()
-    await cache_set(cache_key, payload, expire_seconds=300)
+    serialized = schemas.InventoryRead.model_validate(item).model_dump()
+    await cache_set(cache_key, serialized, expire_seconds=300)
 
-    return payload
+    return item
 
 
 # ---------------------------------------------------------
-# PUT /inventory/{id} (clear caches)
+# PUT /inventory/{id}
 # ---------------------------------------------------------
 @router.put("/{item_id}", response_model=schemas.InventoryRead)
 async def update_inventory_item(
     item_id: int,
     payload: schemas.InventoryCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
     item = db.query(models.InventoryItem).filter(
         models.InventoryItem.id == item_id,
-        models.InventoryItem.owner_id == uid
+        models.InventoryItem.farm_id == farm_id
     ).first()
 
     if not item:
@@ -130,29 +137,28 @@ async def update_inventory_item(
     db.commit()
     db.refresh(item)
 
-    # clear caches
-    await cache_delete(f"inventory:list:{uid}")
-    await cache_delete(f"inventory:item:{uid}:{item_id}")
-    await cache_delete(f"dashboard:stats:{uid}")
+    await cache_delete(f"inventory:list:farm:{farm_id}")
+    await cache_delete(f"inventory:item:farm:{farm_id}:{item_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
     return item
 
 
 # ---------------------------------------------------------
-# DELETE /inventory/{id} (clear caches)
+# DELETE /inventory/{id}
 # ---------------------------------------------------------
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_inventory_item(
     item_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
     item = db.query(models.InventoryItem).filter(
         models.InventoryItem.id == item_id,
-        models.InventoryItem.owner_id == uid
+        models.InventoryItem.farm_id == farm_id
     ).first()
 
     if not item:
@@ -161,8 +167,8 @@ async def delete_inventory_item(
     db.delete(item)
     db.commit()
 
-    await cache_delete(f"inventory:list:{uid}")
-    await cache_delete(f"inventory:item:{uid}:{item_id}")
-    await cache_delete(f"dashboard:stats:{uid}")
+    await cache_delete(f"inventory:list:farm:{farm_id}")
+    await cache_delete(f"inventory:item:farm:{farm_id}:{item_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
     return None

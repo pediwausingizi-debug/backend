@@ -1,107 +1,111 @@
 # routers/finance.py
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List
 from sqlalchemy.orm import Session
 from datetime import datetime
+from typing import List
 
 from database import get_db
 from utils.auth_utils import get_current_user
 from utils.cache import cache_get, cache_set, cache_delete
 import models, schemas
 
-router = APIRouter()
+router = APIRouter(prefix="/finance", tags=["Finance"])
 
 
-# Helper to load actual SQL user from JWT payload
-def get_db_user(user_data, db):
+# Helper — get real user + farm ID
+def get_farm_user(user_data, db):
     db_user = db.query(models.User).filter(models.User.id == user_data["user_id"]).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
+    if not db_user.farm_id:
+        raise HTTPException(status_code=400, detail="User not assigned to a farm")
     return db_user
 
 
 # ---------------------------------------------------------
-# GET /transactions  (cached)
+# GET /finance/transactions (farm-wide, cached)
 # ---------------------------------------------------------
 @router.get("/transactions", response_model=List[schemas.TransactionRead])
 async def get_transactions(
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    cache_key = f"finance:txs:{uid}"
+    cache_key = f"finance:txs:farm:{farm_id}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
     txs = (
         db.query(models.Transaction)
-        .filter(models.Transaction.owner_id == uid)
+        .filter(models.Transaction.farm_id == farm_id)
         .order_by(models.Transaction.date.desc())
         .all()
     )
 
-    # Convert SQLAlchemy objects → dict for Redis storage
-    txs_serialized = [schemas.TransactionRead.model_validate(t).model_dump() for t in txs]
+    # Serialize for Redis
+    serialized = [schemas.TransactionRead.model_validate(t).model_dump() for t in txs]
 
-    await cache_set(cache_key, txs_serialized, expire_seconds=300)
+    await cache_set(cache_key, serialized, expire_seconds=300)
     return txs
 
 
 # ---------------------------------------------------------
-# POST /transactions (invalidate all caches)
+# POST /finance/transactions  (farm-wide)
 # ---------------------------------------------------------
-@router.post("/transactions", response_model=schemas.TransactionRead,
-             status_code=status.HTTP_201_CREATED)
+@router.post("/transactions", response_model=schemas.TransactionRead, status_code=status.HTTP_201_CREATED)
 async def create_transaction(
     payload: schemas.TransactionCreate,
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
     tx_data = payload.dict()
     if not tx_data.get("date"):
         tx_data["date"] = datetime.utcnow()
 
-    tx = models.Transaction(**tx_data, owner_id=uid)
+    tx = models.Transaction(
+        **tx_data,
+        farm_id=farm_id,
+        owner_id=db_user.id  # for tracking who created it
+    )
 
     db.add(tx)
     db.commit()
     db.refresh(tx)
 
-    # Invalidate finance-related & dashboard caches
-    await cache_delete(f"finance:txs:{uid}")
-    await cache_delete(f"finance:summary:{uid}")
-
-    await cache_delete(f"dashboard:stats:{uid}")
-    await cache_delete(f"dashboard:recent:{uid}")
+    # Invalidate finance + dashboard caches
+    await cache_delete(f"finance:txs:farm:{farm_id}")
+    await cache_delete(f"finance:summary:farm:{farm_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
+    await cache_delete(f"dashboard:recent:farm:{farm_id}")
 
     return tx
 
 
 # ---------------------------------------------------------
-# GET /summary  (cached)
+# GET /finance/summary (farm-wide, cached)
 # ---------------------------------------------------------
 @router.get("/summary")
 async def get_financial_summary(
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    cache_key = f"finance:summary:{uid}"
+    cache_key = f"finance:summary:farm:{farm_id}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
     txs = db.query(models.Transaction).filter(
-        models.Transaction.owner_id == uid
+        models.Transaction.farm_id == farm_id
     ).all()
 
     total_income = sum(t.amount for t in txs if t.type == "income")

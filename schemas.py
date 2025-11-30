@@ -1,8 +1,15 @@
-# schemas.py
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import datetime
 
+
+
+class InviteRequest(BaseModel):
+    email: EmailStr
+    name: str
+    role: str  # Manager | Worker
+    
+    
 # ======================
 # USER
 # ======================
@@ -23,6 +30,9 @@ class UserRead(BaseModel):
     created_at: datetime
 
     phone: Optional[str] = None
+
+    # Farm info
+    farm_id: Optional[int] = None
     farm_name: Optional[str] = None
     farm_location: Optional[str] = None
     farm_size: Optional[str] = None
@@ -37,15 +47,16 @@ class UserUpdate(BaseModel):
     farm_name: Optional[str] = None
     farm_location: Optional[str] = None
     farm_size: Optional[str] = None
-    
+
+
 class UserCreateByAdmin(BaseModel):
     email: EmailStr
     name: str
-    role: str  # "Manager" or "Worker"
+    role: str  # Manager or Worker
 
 
 # ======================
-# MEDIA (Multiple images)
+# MEDIA
 # ======================
 
 class MediaRead(BaseModel):
@@ -62,7 +73,7 @@ class ImageSaveRequest(BaseModel):
 
 
 # ======================
-# Crop
+# CROP
 # ======================
 
 class CropBase(BaseModel):
@@ -73,8 +84,6 @@ class CropBase(BaseModel):
     expected_harvest: Optional[datetime] = None
     status: Optional[str] = None
     location: Optional[str] = None
-
-    # NEW: GPS
     latitude: Optional[float] = None
     longitude: Optional[float] = None
 
@@ -85,7 +94,8 @@ class CropCreate(CropBase):
 
 class CropRead(CropBase):
     id: int
-    owner_id: int
+    farm_id: int
+    created_by_id: Optional[int] = None
     image_url: Optional[str] = None
     media: List[MediaRead] = []
 
@@ -94,7 +104,7 @@ class CropRead(CropBase):
 
 
 # ======================
-# Crop Growth Tracking
+# CROP GROWTH
 # ======================
 
 class CropGrowthBase(BaseModel):
@@ -116,7 +126,7 @@ class CropGrowthRead(CropGrowthBase):
 
 
 # ======================
-# Livestock
+# LIVESTOCK
 # ======================
 
 class LivestockBase(BaseModel):
@@ -126,8 +136,6 @@ class LivestockBase(BaseModel):
     age_months: Optional[int] = None
     health_status: Optional[str] = None
     location: Optional[str] = None
-
-    # NEW
     category: Optional[str] = None
 
 
@@ -137,8 +145,9 @@ class LivestockCreate(LivestockBase):
 
 class LivestockRead(LivestockBase):
     id: int
-    created_at: Optional[datetime] = None
-    owner_id: int
+    created_at: datetime
+    farm_id: int
+    created_by_id: Optional[int] = None
     image_url: Optional[str] = None
     media: List[MediaRead] = []
 
@@ -147,7 +156,7 @@ class LivestockRead(LivestockBase):
 
 
 # ======================
-# Livestock Production
+# LIVESTOCK PRODUCTION
 # ======================
 
 class LivestockProductionBase(BaseModel):
@@ -170,7 +179,7 @@ class LivestockProductionRead(LivestockProductionBase):
 
 
 # ======================
-# Inventory
+# INVENTORY
 # ======================
 
 class InventoryBase(BaseModel):
@@ -188,14 +197,15 @@ class InventoryCreate(InventoryBase):
 
 class InventoryRead(InventoryBase):
     id: int
-    owner_id: int
+    farm_id: int
+    created_by_id: Optional[int] = None
 
     class Config:
         from_attributes = True
 
 
 # ======================
-# Transaction / Finance
+# TRANSACTION
 # ======================
 
 class TransactionBase(BaseModel):
@@ -213,14 +223,15 @@ class TransactionCreate(TransactionBase):
 
 class TransactionRead(TransactionBase):
     id: int
-    owner_id: int
+    farm_id: int
+    created_by_id: Optional[int] = None
 
     class Config:
         from_attributes = True
 
 
 # ======================
-# Expense Link
+# EXPENSE LINK
 # ======================
 
 class ExpenseLinkRead(BaseModel):
@@ -234,7 +245,7 @@ class ExpenseLinkRead(BaseModel):
 
 
 # ======================
-# Notification
+# NOTIFICATIONS
 # ======================
 
 class NotificationBase(BaseModel):
@@ -250,15 +261,16 @@ class NotificationCreate(NotificationBase):
 
 class NotificationRead(NotificationBase):
     id: int
-    created_at: Optional[datetime] = None
-    owner_id: int
+    created_at: datetime
+    farm_id: int
+    created_by_id: Optional[int] = None
 
     class Config:
         from_attributes = True
 
 
 # ======================
-# Worker
+# WORKER
 # ======================
 
 class WorkerBase(BaseModel):
@@ -277,14 +289,15 @@ class WorkerCreate(WorkerBase):
 
 class WorkerRead(WorkerBase):
     id: int
-    owner_id: int
+    farm_id: int
+    created_by_id: Optional[int] = None
 
     class Config:
         from_attributes = True
 
 
 # ======================
-# Activity Log
+# ACTIVITY LOG
 # ======================
 
 class ActivityLogBase(BaseModel):
@@ -300,7 +313,8 @@ class ActivityLogCreate(ActivityLogBase):
 
 class ActivityLogRead(ActivityLogBase):
     id: int
-    owner_id: int
+    farm_id: int
+    owner_id: Optional[int]
     timestamp: datetime
 
     class Config:

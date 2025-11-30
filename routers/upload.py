@@ -7,9 +7,27 @@ import models, schemas
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 
-# ------------------------------
-# Save image for livestock
-# ------------------------------
+
+# --------------------------------------------------------
+# Helper → Check user + farm
+# --------------------------------------------------------
+def get_db_user(user_data, db):
+    db_user = db.query(models.User).filter(
+        models.User.id == user_data["user_id"]
+    ).first()
+
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not db_user.farm_id:
+        raise HTTPException(status_code=400, detail="User has no assigned farm")
+
+    return db_user
+
+
+# --------------------------------------------------------
+# Save image for livestock (farm scoped)
+# --------------------------------------------------------
 @router.post("/animal/{animal_id}")
 def save_animal_image(
     animal_id: int,
@@ -17,13 +35,14 @@ def save_animal_image(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    owner_id = user["user_id"]
+    db_user = get_db_user(user, db)
+    farm_id = db_user.farm_id
 
     animal = (
         db.query(models.Livestock)
         .filter(
             models.Livestock.id == animal_id,
-            models.Livestock.owner_id == owner_id
+            models.Livestock.farm_id == farm_id,
         )
         .first()
     )
@@ -31,7 +50,6 @@ def save_animal_image(
     if not animal:
         raise HTTPException(status_code=404, detail="Animal not found")
 
-    # Save the URL
     animal.image_url = payload.url
     db.commit()
     db.refresh(animal)
@@ -39,9 +57,9 @@ def save_animal_image(
     return {"message": "Image saved", "animal": animal}
 
 
-# ------------------------------
-# Save image for crop
-# ------------------------------
+# --------------------------------------------------------
+# Save image for crop (farm scoped)
+# --------------------------------------------------------
 @router.post("/crop/{crop_id}")
 def save_crop_image(
     crop_id: int,
@@ -49,13 +67,14 @@ def save_crop_image(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    owner_id = user["user_id"]
+    db_user = get_db_user(user, db)
+    farm_id = db_user.farm_id
 
     crop = (
         db.query(models.Crop)
         .filter(
             models.Crop.id == crop_id,
-            models.Crop.owner_id == owner_id
+            models.Crop.farm_id == farm_id,
         )
         .first()
     )

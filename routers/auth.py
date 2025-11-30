@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from firebase_admin import auth as firebase_auth
 
 from database import get_db
-from models import User, Farm
+from models import User, Farm, Worker
 from schemas import UserRead, UserUpdate
 from utils.auth_utils import create_backend_jwt, get_current_user
 from utils.cache import cache_get, cache_set, cache_delete
@@ -111,7 +111,7 @@ async def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
 # -------------------------------------------------
 # ADMIN: Create Manager / Worker
 # -------------------------------------------------
-@router.post("/admin/create-user")
+#@router.post("/admin/create-user")
 async def admin_create_user(
     payload: UserCreateByAdmin,
     auth_user=Depends(get_current_user),
@@ -123,7 +123,7 @@ async def admin_create_user(
     if payload.role not in ["Manager", "Worker"]:
         raise HTTPException(status_code=400, detail="Invalid role")
 
-    # user already exists?
+    # Check if user already exists
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="User already exists")
@@ -163,7 +163,7 @@ async def update_user(
     db.commit()
     db.refresh(db_user)
 
-    # update cache
+    # update cached profile
     await cache_set(
         f"user:me:{db_user.id}",
         UserRead.model_validate(db_user).model_dump(),
@@ -197,3 +197,111 @@ async def me(
     await cache_set(cache_key, payload, expire_seconds=120)
 
     return payload
+
+# -------------------------------------------------
+# ADMIN: Invite Manager / Worker (email + password)
+# -------------------------------------------------
+from utils.password_utils import hash_password
+from utils.email_utils import send_email
+import secrets
+class InviteRequest(BaseModel):
+    email: EmailStr
+    name: str
+    role: str  # Manager | Worker
+
+@router.post("/admin/invite")
+async def invite_user(
+    payload: InviteRequest,
+    auth_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Only admins
+    if auth_user["role"] != "Admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+
+    if payload.role not in ["Manager", "Worker"]:
+        raise HTTPException(status_code=400, detail="Invalid role")
+
+    # Exists already?
+    existing = (
+        db.query(User)
+        .filter(User.email == payload.email)
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="User already exists")
+
+    # 1) Generate temporary password
+    temp_password = secrets.token_hex(4)   # 8 chars
+
+    # 2) Create user
+    new_user = User(
+        email=payload.email,
+        name=payload.name,
+        role=payload.role,
+        password_hash=hash_password(temp_password),
+        farm_id=auth_user["farm_id"],
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    # 3) Create worker entry
+    worker = Worker(
+        name=payload.name,
+        role=payload.role,
+        email=payload.email,
+        status="Active",
+        farm_id=auth_user["farm_id"],
+        created_by_id=auth_user["user_id"]
+    )
+    db.add(worker)
+    db.commit()
+
+    # 4) Send invite email
+    try:
+        send_email(
+            to=payload.email,
+            subject="You’ve been invited to FarmXpat",
+            body=(
+                f"Hello {payload.name},\n\n"
+                f"You have been invited to join FarmXpat as a {payload.role}.\n\n"
+                f"Your login details:\n"
+                f"Email: {payload.email}\n"
+                f"Temporary Password: {temp_password}\n\n"
+                f"Please log in and update your password.\n\n"
+                "FarmXpat Team"
+            )
+        )
+    except Exception as e:
+        print("EMAIL SEND ERROR:", e)
+
+    return {
+        "message": "User invited successfully",
+        "user_id": new_user.id,
+        "worker_id": worker.id
+    }
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+@router.post("/login")
+async def email_login(payload: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not user.password_hash:
+        raise HTTPException(status_code=400, detail="This account uses Google login")
+
+    from utils.password_utils import verify_password
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
+    token = create_backend_jwt(user)
+
+    return {
+        "user": UserRead.model_validate(user),
+        "token": token,
+    }

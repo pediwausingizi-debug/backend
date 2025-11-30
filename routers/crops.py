@@ -1,5 +1,3 @@
-# routers/crops.py
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 from sqlalchemy.orm import Session
@@ -9,34 +7,36 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
 
-router = APIRouter()
+router = APIRouter(prefix="/crops", tags=["Crops"])
 
 
-# Helper to load real User model
-def get_db_user(user_data, db):
+# Helper: Load User and grab farm_id
+def get_farm_user(user_data, db):
     db_user = db.query(models.User).filter(models.User.id == user_data["user_id"]).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
+    if not db_user.farm_id:
+        raise HTTPException(status_code=400, detail="User not assigned to a farm")
     return db_user
 
 
 # ---------------------------------------------------------
-# GET /crops (cached)
+# GET /crops  (Farm-wide)
 # ---------------------------------------------------------
 @router.get("/", response_model=List[schemas.CropRead])
 async def list_crops(
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
-    cache_key = f"crops:list:{uid}"
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
+    cache_key = f"crops:list:farm:{farm_id}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
-    crops = db.query(models.Crop).filter(models.Crop.owner_id == uid).all()
+    crops = db.query(models.Crop).filter(models.Crop.farm_id == farm_id).all()
     payload = [schemas.CropRead.model_validate(c).model_dump() for c in crops]
 
     await cache_set(cache_key, payload, expire_seconds=300)
@@ -44,48 +44,49 @@ async def list_crops(
 
 
 # ---------------------------------------------------------
-# POST /crops  (invalidate caches)
+# POST /crops
 # ---------------------------------------------------------
 @router.post("/", response_model=schemas.CropRead, status_code=status.HTTP_201_CREATED)
 async def create_crop(
     payload: schemas.CropCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    crop = models.Crop(**payload.dict(), owner_id=uid)
+    crop = models.Crop(**payload.dict(), farm_id=farm_id)
     db.add(crop)
     db.commit()
     db.refresh(crop)
 
-    await cache_delete(f"crops:list:{uid}")
-    await cache_delete(f"dashboard:stats:{uid}")
+    # Invalidate farm cache
+    await cache_delete(f"crops:list:farm:{farm_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
     return crop
 
 
 # ---------------------------------------------------------
-# GET /crops/{id} (cached)
+# GET /crops/{id}
 # ---------------------------------------------------------
 @router.get("/{crop_id}", response_model=schemas.CropRead)
 async def get_crop(
     crop_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    cache_key = f"crops:item:{uid}:{crop_id}"
+    cache_key = f"crops:item:farm:{farm_id}:{crop_id}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
     crop = db.query(models.Crop).filter(
         models.Crop.id == crop_id,
-        models.Crop.owner_id == uid
+        models.Crop.farm_id == farm_id
     ).first()
 
     if not crop:
@@ -97,21 +98,21 @@ async def get_crop(
 
 
 # ---------------------------------------------------------
-# PUT /crops/{id} (invalidate caches)
+# PUT /crops/{id}
 # ---------------------------------------------------------
 @router.put("/{crop_id}", response_model=schemas.CropRead)
 async def update_crop(
     crop_id: int,
     payload: schemas.CropCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
     crop = db.query(models.Crop).filter(
         models.Crop.id == crop_id,
-        models.Crop.owner_id == uid
+        models.Crop.farm_id == farm_id
     ).first()
 
     if not crop:
@@ -123,29 +124,29 @@ async def update_crop(
     db.commit()
     db.refresh(crop)
 
-    # invalidate caches
-    await cache_delete(f"crops:list:{uid}")
-    await cache_delete(f"crops:item:{uid}:{crop_id}")
-    await cache_delete(f"dashboard:stats:{uid}")
+    # Clear caches
+    await cache_delete(f"crops:list:farm:{farm_id}")
+    await cache_delete(f"crops:item:farm:{farm_id}:{crop_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
     return crop
 
 
 # ---------------------------------------------------------
-# DELETE /crops/{id} (invalidate caches)
+# DELETE /crops/{id}
 # ---------------------------------------------------------
 @router.delete("/{crop_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_crop(
     crop_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
     crop = db.query(models.Crop).filter(
         models.Crop.id == crop_id,
-        models.Crop.owner_id == uid
+        models.Crop.farm_id == farm_id
     ).first()
 
     if not crop:
@@ -154,9 +155,9 @@ async def delete_crop(
     db.delete(crop)
     db.commit()
 
-    # invalidate caches
-    await cache_delete(f"crops:list:{uid}")
-    await cache_delete(f"crops:item:{uid}:{crop_id}")
-    await cache_delete(f"dashboard:stats:{uid}")
+    # Clear farm caches
+    await cache_delete(f"crops:list:farm:{farm_id}")
+    await cache_delete(f"crops:item:farm:{farm_id}:{crop_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
     return None

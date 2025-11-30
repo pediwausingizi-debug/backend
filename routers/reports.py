@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from utils.cache import cache_get, cache_set, cache_delete
+from utils.cache import cache_get, cache_set
 from database import get_db
 from utils.auth_utils import get_current_user
 import models
@@ -9,7 +9,9 @@ import models
 router = APIRouter()
 
 
-# Helper → fetch SQL user instance
+# -------------------------------------------------------------
+# Helper → fetch full SQL user + farm
+# -------------------------------------------------------------
 def get_db_user(user_data, db):
     db_user = db.query(models.User).filter(
         models.User.id == user_data["user_id"]
@@ -18,11 +20,14 @@ def get_db_user(user_data, db):
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if not db_user.farm_id:
+        raise HTTPException(status_code=400, detail="User is not assigned to a farm")
+
     return db_user
 
 
 # -------------------------------------------------------------
-# LIVESTOCK REPORT  (cached)
+# LIVESTOCK REPORT (FARM-WIDE)
 # -------------------------------------------------------------
 @router.get("/livestock")
 async def get_livestock_report(
@@ -30,18 +35,19 @@ async def get_livestock_report(
     user=Depends(get_current_user)
 ):
     db_user = get_db_user(user, db)
-    uid = db_user.id
+    farm_id = db_user.farm_id
 
-    cache_key = f"report:livestock:{uid}"
+    cache_key = f"report:livestock:farm:{farm_id}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
     items = db.query(models.Livestock).filter(
-        models.Livestock.owner_id == uid
+        models.Livestock.farm_id == farm_id
     ).all()
 
-    total_count = sum(i.quantity for i in items)
+    total_count = sum(i.quantity or 0 for i in items)
+
     by_type = {}
     health_summary = {"healthy": 0, "sick": 0, "treatment": 0}
 
@@ -63,13 +69,12 @@ async def get_livestock_report(
         "health_summary": health_summary
     }
 
-    # cache for 5min
     await cache_set(cache_key, payload, 300)
     return payload
 
 
 # -------------------------------------------------------------
-# CROPS REPORT  (cached)
+# CROPS REPORT (FARM-WIDE)
 # -------------------------------------------------------------
 @router.get("/crops")
 async def get_crops_report(
@@ -77,15 +82,15 @@ async def get_crops_report(
     user=Depends(get_current_user)
 ):
     db_user = get_db_user(user, db)
-    uid = db_user.id
+    farm_id = db_user.farm_id
 
-    cache_key = f"report:crops:{uid}"
+    cache_key = f"report:crops:farm:{farm_id}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
     crops = db.query(models.Crop).filter(
-        models.Crop.owner_id == uid
+        models.Crop.farm_id == farm_id
     ).all()
 
     total_area = sum(c.area_hectares or 0 for c in crops)
@@ -112,7 +117,7 @@ async def get_crops_report(
 
 
 # -------------------------------------------------------------
-# FINANCIAL REPORT  (cached)
+# FINANCIAL REPORT (FARM-WIDE)
 # -------------------------------------------------------------
 @router.get("/financial")
 async def get_financial_report(
@@ -120,15 +125,15 @@ async def get_financial_report(
     user=Depends(get_current_user)
 ):
     db_user = get_db_user(user, db)
-    uid = db_user.id
+    farm_id = db_user.farm_id
 
-    cache_key = f"report:financial:{uid}"
+    cache_key = f"report:financial:farm:{farm_id}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
     transactions = db.query(models.Transaction).filter(
-        models.Transaction.owner_id == uid
+        models.Transaction.farm_id == farm_id
     ).all()
 
     total_income = sum(t.amount for t in transactions if t.type == "income")
@@ -152,7 +157,7 @@ async def get_financial_report(
 
 
 # -------------------------------------------------------------
-# INVENTORY REPORT  (cached)
+# INVENTORY REPORT (FARM-WIDE)
 # -------------------------------------------------------------
 @router.get("/inventory")
 async def get_inventory_report(
@@ -160,15 +165,15 @@ async def get_inventory_report(
     user=Depends(get_current_user)
 ):
     db_user = get_db_user(user, db)
-    uid = db_user.id
+    farm_id = db_user.farm_id
 
-    cache_key = f"report:inventory:{uid}"
+    cache_key = f"report:inventory:farm:{farm_id}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
     items = db.query(models.InventoryItem).filter(
-        models.InventoryItem.owner_id == uid
+        models.InventoryItem.farm_id == farm_id
     ).all()
 
     total_items = len(items)

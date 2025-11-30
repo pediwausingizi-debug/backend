@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import User
-from utils.cache import cache_get, cache_set  # Redis helpers
+from utils.cache import cache_get, cache_set
 
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
 ALGORITHM = "HS256"
@@ -17,14 +17,17 @@ AUDIENCE = "farmxpat_users"
 
 
 # -------------------------------------------------
-# Create Backend JWT (Improved)
+# Create Backend JWT (INCLUDES FARM ID)
 # -------------------------------------------------
 def create_backend_jwt(user: User):
     now = datetime.utcnow()
+
     payload = {
         "sub": str(user.id),
         "email": user.email,
         "role": user.role,
+        "farm_id": user.farm_id,   # 🟩 REQUIRED FOR MULTI-TENANT FARM SCOPING
+
         "iss": ISSUER,
         "aud": AUDIENCE,
         "iat": now,
@@ -36,7 +39,7 @@ def create_backend_jwt(user: User):
 
 
 # -------------------------------------------------
-# Decode Backend JWT
+# Decode JWT
 # -------------------------------------------------
 def verify_backend_jwt(token: str):
     try:
@@ -51,7 +54,8 @@ def verify_backend_jwt(token: str):
         return {
             "user_id": int(payload["sub"]),
             "email": payload["email"],
-            "role": payload.get("role", "Worker")
+            "role": payload.get("role", "Worker"),
+            "farm_id": payload.get("farm_id"),   # 🟩 MUST RETURN FARM ID
         }
 
     except JWTError:
@@ -59,8 +63,7 @@ def verify_backend_jwt(token: str):
 
 
 # -------------------------------------------------
-# PROTECTED ROUTE DEPENDENCY
-# + Redis caching for speed
+# Protect Routes + Redis Cache
 # -------------------------------------------------
 async def get_current_user(
     db: Session = Depends(get_db),
@@ -80,9 +83,10 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     uid = jwt_data["user_id"]
+    farm_id = jwt_data.get("farm_id")
 
     # ---------------------------
-    # Redis cache: user:<id>
+    # Redis cache: user:{uid}
     # ---------------------------
     cache_key = f"user:{uid}"
 
@@ -91,7 +95,7 @@ async def get_current_user(
         return cached
 
     # ---------------------------
-    # DB lookup if not cached
+    # Load DB user
     # ---------------------------
     user = db.query(User).filter(User.id == uid).first()
     if not user:
@@ -100,17 +104,17 @@ async def get_current_user(
     user_payload = {
         "user_id": user.id,
         "email": user.email,
-        "role": user.role
+        "role": user.role,
+        "farm_id": user.farm_id,   # 🟩 ENSURE FARM ID ALWAYS PRESENT
     }
 
-    # store in redis for 5 minutes
     await cache_set(cache_key, user_payload, expire_seconds=300)
 
     return user_payload
 
 
 # -------------------------------------------------
-# ROLE-BASED ACCESS HELPERS
+# ROLE-BASED ACCESS
 # -------------------------------------------------
 def require_admin(user=Depends(get_current_user)):
     if user["role"].lower() != "admin":

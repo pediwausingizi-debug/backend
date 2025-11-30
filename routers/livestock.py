@@ -1,3 +1,5 @@
+# routers/livestock.py
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
 from datetime import datetime
@@ -8,137 +10,143 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
 
-router = APIRouter()
+router = APIRouter(prefix="/livestock", tags=["Livestock"])
 
 
-# Helper → fetch SQL user
-def get_db_user(user_data, db):
-    db_user = db.query(models.User).filter(models.User.id == user_data["user_id"]).first()
+# Helper → get user and validate farm
+def get_farm_user(user_data, db):
+    db_user = db.query(models.User).filter(
+        models.User.id == user_data["user_id"]
+    ).first()
+
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    if not db_user.farm_id:
+        raise HTTPException(status_code=400, detail="User is not assigned to a farm")
+
     return db_user
 
 
 # ---------------------------------------------------------
-# GET /livestock  (cached)
+# GET /livestock  (farm-wide)
 # ---------------------------------------------------------
 @router.get("/", response_model=List[schemas.LivestockRead])
 async def list_livestock(
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    cache_key = f"livestock:list:{uid}"
+    cache_key = f"livestock:list:farm:{farm_id}"
     cached = await cache_get(cache_key)
-
     if cached:
         return cached
 
-    items = db.query(models.Livestock).filter(
-        models.Livestock.owner_id == uid
+    animals = db.query(models.Livestock).filter(
+        models.Livestock.farm_id == farm_id
     ).all()
 
-    payload = [schemas.LivestockRead.model_validate(i).model_dump() for i in items]
+    serialized = [schemas.LivestockRead.model_validate(a).model_dump() for a in animals]
 
-    await cache_set(cache_key, payload, expire_seconds=300)
-    return payload
+    await cache_set(cache_key, serialized, expire_seconds=300)
+    return animals
 
 
 # ---------------------------------------------------------
-# POST /livestock (invalidates caches)
+# POST /livestock  (create for farm)
 # ---------------------------------------------------------
 @router.post("/", response_model=schemas.LivestockRead, status_code=status.HTTP_201_CREATED)
 async def create_livestock(
     payload: schemas.LivestockCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    item = models.Livestock(
+    animal = models.Livestock(
         **payload.dict(),
+        farm_id=farm_id,
+        added_by=db_user.id,
         created_at=datetime.utcnow(),
-        owner_id=uid
     )
 
-    db.add(item)
+    db.add(animal)
     db.commit()
-    db.refresh(item)
+    db.refresh(animal)
 
     # Clear caches
-    await cache_delete(f"livestock:list:{uid}")
-    await cache_delete(f"dashboard:stats:{uid}")
+    await cache_delete(f"livestock:list:farm:{farm_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
-    return item
+    return animal
 
 
 # ---------------------------------------------------------
-# GET /livestock/{id} (cached)
+# GET /livestock/{id}
 # ---------------------------------------------------------
 @router.get("/{item_id}", response_model=schemas.LivestockRead)
 async def get_livestock_item(
     item_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    cache_key = f"livestock:item:{uid}:{item_id}"
+    cache_key = f"livestock:item:farm:{farm_id}:{item_id}"
     cached = await cache_get(cache_key)
-
     if cached:
         return cached
 
-    item = db.query(models.Livestock).filter(
+    animal = db.query(models.Livestock).filter(
         models.Livestock.id == item_id,
-        models.Livestock.owner_id == uid
+        models.Livestock.farm_id == farm_id
     ).first()
 
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+    if not animal:
+        raise HTTPException(status_code=404, detail="Livestock item not found")
 
-    payload = schemas.LivestockRead.model_validate(item).model_dump()
-    await cache_set(cache_key, payload, expire_seconds=300)
+    serialized = schemas.LivestockRead.model_validate(animal).model_dump()
+    await cache_set(cache_key, serialized, expire_seconds=300)
 
-    return payload
+    return animal
 
 
 # ---------------------------------------------------------
-# PUT /livestock/{id} (invalidate caches)
+# PUT /livestock/{id}
 # ---------------------------------------------------------
 @router.put("/{item_id}", response_model=schemas.LivestockRead)
 async def update_livestock(
     item_id: int,
     payload: schemas.LivestockCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    item = db.query(models.Livestock).filter(
+    animal = db.query(models.Livestock).filter(
         models.Livestock.id == item_id,
-        models.Livestock.owner_id == uid
+        models.Livestock.farm_id == farm_id
     ).first()
 
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+    if not animal:
+        raise HTTPException(status_code=404, detail="Livestock item not found")
 
     for k, v in payload.dict().items():
-        setattr(item, k, v)
+        setattr(animal, k, v)
 
     db.commit()
-    db.refresh(item)
+    db.refresh(animal)
 
-    await cache_delete(f"livestock:list:{uid}")
-    await cache_delete(f"livestock:item:{uid}:{item_id}")
-    await cache_delete(f"dashboard:stats:{uid}")
+    await cache_delete(f"livestock:list:farm:{farm_id}")
+    await cache_delete(f"livestock:item:farm:{farm_id}:{item_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
-    return item
+    return animal
 
 
 # ---------------------------------------------------------
@@ -148,57 +156,42 @@ async def update_livestock(
 async def delete_livestock(
     item_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
-    uid = db_user.id
+    db_user = get_farm_user(user, db)
+    farm_id = db_user.farm_id
 
-    item = db.query(models.Livestock).filter(
+    animal = db.query(models.Livestock).filter(
         models.Livestock.id == item_id,
-        models.Livestock.owner_id == uid
+        models.Livestock.farm_id == farm_id
     ).first()
 
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+    if not animal:
+        raise HTTPException(status_code=404, detail="Livestock item not found")
 
-    db.delete(item)
+    db.delete(animal)
     db.commit()
 
-    await cache_delete(f"livestock:list:{uid}")
-    await cache_delete(f"livestock:item:{uid}:{item_id}")
-    await cache_delete(f"dashboard:stats:{uid}")
+    await cache_delete(f"livestock:list:farm:{farm_id}")
+    await cache_delete(f"livestock:item:farm:{farm_id}:{item_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
     return None
 
 
 # ---------------------------------------------------------
-# Feed / Health / Production (future: AI)
+# Feed / Health / Production (simple placeholders)
 # ---------------------------------------------------------
 @router.get("/{item_id}/feed")
-def get_livestock_feed(
-    item_id: int,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user)
-):
-    db_user = get_db_user(user, db)
+def get_livestock_feed(item_id: int):
     return {"feed_records": []}
 
 
 @router.get("/{item_id}/health")
-def get_livestock_health(
-    item_id: int,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user)
-):
-    db_user = get_db_user(user, db)
+def get_livestock_health(item_id: int):
     return {"health_records": []}
 
 
 @router.get("/{item_id}/production")
-def get_livestock_production(
-    item_id: int,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user)
-):
-    db_user = get_db_user(user, db)
+def get_livestock_production(item_id: int):
     return {"production_records": []}
