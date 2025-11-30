@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from utils.cache import cache_get, cache_set, cache_delete
 from database import get_db
-from utils import get_current_user
+from utils.auth_utils import get_current_user
 import models, schemas
 
 router = APIRouter()
