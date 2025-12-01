@@ -22,16 +22,16 @@ def get_farm_user(user_data, db):
     ).first()
 
     if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(404, "User not found")
 
     if not db_user.farm_id:
-        raise HTTPException(status_code=400, detail="User is not assigned to a farm")
+        raise HTTPException(400, "User is not assigned to a farm")
 
     return db_user
 
 
 # ---------------------------------------------------------
-# GET /notifications (farm-wide, cached)
+# GET /notifications (farm-wide, cached, JSON-safe)
 # ---------------------------------------------------------
 @router.get("/", response_model=List[schemas.NotificationRead])
 async def list_notifications(
@@ -54,17 +54,18 @@ async def list_notifications(
         .all()
     )
 
-    payload = [
+    serialized = [
         schemas.NotificationRead.model_validate(n).model_dump()
         for n in notifications
     ]
 
-    await cache_set(cache_key, payload, expire_seconds=120)
-    return notifications
+    await cache_set(cache_key, serialized, expire_seconds=120)
+    return serialized
 
 
 # ---------------------------------------------------------
 # POST /notifications (Admin or Manager)
+# JSON-safe return
 # ---------------------------------------------------------
 @router.post("/", response_model=schemas.NotificationRead, status_code=status.HTTP_201_CREATED)
 async def create_notification(
@@ -76,7 +77,7 @@ async def create_notification(
     farm_id = db_user.farm_id
 
     if db_user.role not in ["Admin", "Manager"]:
-        raise HTTPException(status_code=403, detail="Only Admin/Manager can create notifications")
+        raise HTTPException(403, "Only Admin/Manager can create notifications")
 
     notif = models.Notification(
         **payload.dict(),
@@ -92,29 +93,19 @@ async def create_notification(
     await cache_delete(f"notifications:list:farm:{farm_id}")
     await cache_delete(f"dashboard:recent:farm:{farm_id}")
 
-    return notif
+    return schemas.NotificationRead.model_validate(notif)
 
 
 # ---------------------------------------------------------
 # PUT /notifications/{id}/read
-# (Each user marks as read individually → per-user table needed)
+# JSON-safe return
 # ---------------------------------------------------------
-
 @router.put("/{notification_id}/read", response_model=schemas.NotificationRead)
 async def mark_as_read(
     notification_id: int,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """
-    IMPORTANT NOTE:
-    If notifications are shared farm-wide,
-    and you want INDIVIDUAL users to mark as read,
-    you need a NotificationReadStatus table.
-
-    For now this marks the base record, meaning:
-        "when one user marks as read, everyone sees it as read."
-    """
 
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
@@ -125,7 +116,7 @@ async def mark_as_read(
     ).first()
 
     if not notif:
-        raise HTTPException(status_code=404, detail="Notification not found")
+        raise HTTPException(404, "Notification not found")
 
     notif.read = True
     db.commit()
@@ -134,4 +125,4 @@ async def mark_as_read(
     await cache_delete(f"notifications:list:farm:{farm_id}")
     await cache_delete(f"dashboard:recent:farm:{farm_id}")
 
-    return notif
+    return schemas.NotificationRead.model_validate(notif)

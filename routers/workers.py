@@ -1,3 +1,5 @@
+# routers/workers.py
+
 from fastapi import APIRouter, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 from typing import List
@@ -6,29 +8,29 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
 
-router = APIRouter()
+router = APIRouter(prefix="/workers", tags=["Workers"])
 
 
-# Helper: load real database user and ensure they belong to a farm
+# Helper: real DB user + farm validation
 def get_db_user(user_data, db):
     db_user = db.query(models.User).filter(
         models.User.id == user_data["user_id"]
     ).first()
 
     if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(404, "User not found")
 
     if not db_user.farm_id:
-        raise HTTPException(status_code=400, detail="User is not assigned to any farm")
+        raise HTTPException(400, "User is not assigned to any farm")
 
     return db_user
 
 
-# ---------------------------------------------------------
-# GET workers (farm-scoped)
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
+# GET workers (JSON-safe)
+# -------------------------------------------------------------------
 @router.get("/", response_model=List[schemas.WorkerRead])
-def get_workers(
+async def get_workers(
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
 ):
@@ -38,14 +40,17 @@ def get_workers(
         models.Worker.farm_id == db_user.farm_id
     ).all()
 
-    return workers
+    return [
+        schemas.WorkerRead.model_validate(w).model_dump()
+        for w in workers
+    ]
 
 
-# ---------------------------------------------------------
-# CREATE worker (farm-scoped)
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
+# CREATE worker (JSON-safe)
+# -------------------------------------------------------------------
 @router.post("/", response_model=schemas.WorkerRead, status_code=status.HTTP_201_CREATED)
-def create_worker(
+async def create_worker(
     worker: schemas.WorkerCreate,
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
@@ -62,14 +67,14 @@ def create_worker(
     db.commit()
     db.refresh(db_worker)
 
-    return db_worker
+    return schemas.WorkerRead.model_validate(db_worker)
 
 
-# ---------------------------------------------------------
-# GET worker by ID (farm-scoped)
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
+# GET worker by ID (JSON-safe)
+# -------------------------------------------------------------------
 @router.get("/{worker_id}", response_model=schemas.WorkerRead)
-def get_worker(
+async def get_worker(
     worker_id: int,
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
@@ -82,16 +87,16 @@ def get_worker(
     ).first()
 
     if not worker:
-        raise HTTPException(status_code=404, detail="Worker not found")
+        raise HTTPException(404, "Worker not found")
 
-    return worker
+    return schemas.WorkerRead.model_validate(worker)
 
 
-# ---------------------------------------------------------
-# UPDATE worker (farm-scoped)
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
+# UPDATE worker (JSON-safe)
+# -------------------------------------------------------------------
 @router.put("/{worker_id}", response_model=schemas.WorkerRead)
-def update_worker(
+async def update_worker(
     worker_id: int,
     updated_worker: schemas.WorkerCreate,
     db: Session = Depends(get_db),
@@ -105,22 +110,22 @@ def update_worker(
     ).first()
 
     if not worker:
-        raise HTTPException(status_code=404, detail="Worker not found")
+        raise HTTPException(404, "Worker not found")
 
-    for key, value in updated_worker.dict().items():
-        setattr(worker, key, value)
+    for k, v in updated_worker.dict().items():
+        setattr(worker, k, v)
 
     db.commit()
     db.refresh(worker)
 
-    return worker
+    return schemas.WorkerRead.model_validate(worker)
 
 
-# ---------------------------------------------------------
-# DELETE worker (farm-scoped)
-# ---------------------------------------------------------
+# -------------------------------------------------------------------
+# DELETE worker (simple)
+# -------------------------------------------------------------------
 @router.delete("/{worker_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_worker(
+async def delete_worker(
     worker_id: int,
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
@@ -133,9 +138,8 @@ def delete_worker(
     ).first()
 
     if not worker:
-        raise HTTPException(status_code=404, detail="Worker not found")
+        raise HTTPException(404, "Worker not found")
 
     db.delete(worker)
     db.commit()
-
     return None

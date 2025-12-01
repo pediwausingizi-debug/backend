@@ -18,10 +18,10 @@ def get_db_user(user_data, db):
     ).first()
 
     if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(404, "User not found")
 
     if not db_user.farm_id:
-        raise HTTPException(status_code=400, detail="User is not assigned to a farm")
+        raise HTTPException(400, "User is not assigned to a farm")
 
     return db_user
 
@@ -46,7 +46,7 @@ async def get_livestock_report(
         models.Livestock.farm_id == farm_id
     ).all()
 
-    total_count = sum(i.quantity or 0 for i in items)
+    total_count = sum((i.quantity or 0) for i in items)
 
     by_type = {}
     health_summary = {"healthy": 0, "sick": 0, "treatment": 0}
@@ -66,7 +66,7 @@ async def get_livestock_report(
     payload = {
         "total_count": total_count,
         "by_type": by_type,
-        "health_summary": health_summary
+        "health_summary": health_summary,
     }
 
     await cache_set(cache_key, payload, 300)
@@ -93,7 +93,8 @@ async def get_crops_report(
         models.Crop.farm_id == farm_id
     ).all()
 
-    total_area = sum(c.area_hectares or 0 for c in crops)
+    total_area = sum((c.area_hectares or 0) for c in crops)
+
     by_crop = {}
     harvest_summary = {"completed": 0, "pending": 0}
 
@@ -101,7 +102,8 @@ async def get_crops_report(
         area = crop.area_hectares or 0
         by_crop[crop.name] = by_crop.get(crop.name, 0) + area
 
-        if (crop.status or "").lower() == "completed":
+        status = (crop.status or "").lower()
+        if status == "completed":
             harvest_summary["completed"] += 1
         else:
             harvest_summary["pending"] += 1
@@ -109,7 +111,7 @@ async def get_crops_report(
     payload = {
         "total_area": total_area,
         "by_crop": by_crop,
-        "harvest_summary": harvest_summary
+        "harvest_summary": harvest_summary,
     }
 
     await cache_set(cache_key, payload, 300)
@@ -142,14 +144,14 @@ async def get_financial_report(
 
     by_category = {}
     for t in transactions:
-        key = t.category or "uncategorized"
-        by_category[key] = by_category.get(key, 0) + (t.amount or 0)
+        cat = t.category or "uncategorized"
+        by_category[cat] = by_category.get(cat, 0) + (t.amount or 0)
 
     payload = {
         "total_income": total_income,
         "total_expenses": total_expenses,
         "net_profit": net_profit,
-        "by_category": by_category
+        "by_category": by_category,
     }
 
     await cache_set(cache_key, payload, 300)
@@ -180,18 +182,20 @@ async def get_inventory_report(
 
     low_stock_items = len([
         i for i in items
-        if i.reorder_level is not None and i.quantity <= (i.reorder_level or 0)
+        if i.reorder_level is not None and (i.quantity or 0) <= (i.reorder_level or 0)
     ])
 
     out_of_stock = len([i for i in items if (i.quantity or 0) == 0])
 
-    total_value = sum((i.quantity or 0) for i in items)  # add price later
+    total_value = sum(
+        (i.quantity or 0) for i in items
+    )  # add price * quantity later if needed
 
     payload = {
         "total_items": total_items,
         "low_stock_items": low_stock_items,
         "out_of_stock": out_of_stock,
-        "total_value": total_value
+        "total_value": total_value,
     }
 
     await cache_set(cache_key, payload, 300)

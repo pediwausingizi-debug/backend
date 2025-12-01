@@ -13,29 +13,32 @@ import models, schemas
 router = APIRouter(prefix="/livestock", tags=["Livestock"])
 
 
-# Helper → get user and validate farm
+# ---------------------------------------------------------
+# Helper — get real user + farm_id
+# ---------------------------------------------------------
 def get_farm_user(user_data, db):
     db_user = db.query(models.User).filter(
         models.User.id == user_data["user_id"]
     ).first()
 
     if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(404, "User not found")
 
     if not db_user.farm_id:
-        raise HTTPException(status_code=400, detail="User is not assigned to a farm")
+        raise HTTPException(400, "User is not assigned to a farm")
 
     return db_user
 
 
 # ---------------------------------------------------------
-# GET /livestock  (farm-wide)
+# GET /livestock  (JSON-safe, cached)
 # ---------------------------------------------------------
 @router.get("/", response_model=List[schemas.LivestockRead])
 async def list_livestock(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
 
@@ -48,14 +51,18 @@ async def list_livestock(
         models.Livestock.farm_id == farm_id
     ).all()
 
-    serialized = [schemas.LivestockRead.model_validate(a).model_dump() for a in animals]
+    # ORM -> JSON dicts (safe)
+    serialized = [
+        schemas.LivestockRead.model_validate(a).model_dump()
+        for a in animals
+    ]
 
-    await cache_set(cache_key, serialized, expire_seconds=300)
-    return animals
+    await cache_set(cache_key, serialized)
+    return serialized
 
 
 # ---------------------------------------------------------
-# POST /livestock  (create for farm)
+# POST /livestock  (create, JSON-safe)
 # ---------------------------------------------------------
 @router.post("/", response_model=schemas.LivestockRead, status_code=status.HTTP_201_CREATED)
 async def create_livestock(
@@ -63,6 +70,7 @@ async def create_livestock(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
 
@@ -81,11 +89,11 @@ async def create_livestock(
     await cache_delete(f"livestock:list:farm:{farm_id}")
     await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
-    return animal
+    return schemas.LivestockRead.model_validate(animal)
 
 
 # ---------------------------------------------------------
-# GET /livestock/{id}
+# GET /livestock/{id}  (JSON-safe, cached)
 # ---------------------------------------------------------
 @router.get("/{item_id}", response_model=schemas.LivestockRead)
 async def get_livestock_item(
@@ -93,6 +101,7 @@ async def get_livestock_item(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
 
@@ -107,16 +116,16 @@ async def get_livestock_item(
     ).first()
 
     if not animal:
-        raise HTTPException(status_code=404, detail="Livestock item not found")
+        raise HTTPException(404, "Livestock item not found")
 
     serialized = schemas.LivestockRead.model_validate(animal).model_dump()
-    await cache_set(cache_key, serialized, expire_seconds=300)
+    await cache_set(cache_key, serialized)
 
-    return animal
+    return serialized
 
 
 # ---------------------------------------------------------
-# PUT /livestock/{id}
+# PUT /livestock/{id}  (JSON-safe)
 # ---------------------------------------------------------
 @router.put("/{item_id}", response_model=schemas.LivestockRead)
 async def update_livestock(
@@ -125,6 +134,7 @@ async def update_livestock(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
 
@@ -134,7 +144,7 @@ async def update_livestock(
     ).first()
 
     if not animal:
-        raise HTTPException(status_code=404, detail="Livestock item not found")
+        raise HTTPException(404, "Livestock item not found")
 
     for k, v in payload.dict().items():
         setattr(animal, k, v)
@@ -146,7 +156,7 @@ async def update_livestock(
     await cache_delete(f"livestock:item:farm:{farm_id}:{item_id}")
     await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
-    return animal
+    return schemas.LivestockRead.model_validate(animal)
 
 
 # ---------------------------------------------------------
@@ -158,6 +168,7 @@ async def delete_livestock(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
 
@@ -167,7 +178,7 @@ async def delete_livestock(
     ).first()
 
     if not animal:
-        raise HTTPException(status_code=404, detail="Livestock item not found")
+        raise HTTPException(404, "Livestock item not found")
 
     db.delete(animal)
     db.commit()
@@ -180,17 +191,15 @@ async def delete_livestock(
 
 
 # ---------------------------------------------------------
-# Feed / Health / Production (simple placeholders)
+# ADDITIONAL SIMPLE ENDPOINTS
 # ---------------------------------------------------------
 @router.get("/{item_id}/feed")
 def get_livestock_feed(item_id: int):
     return {"feed_records": []}
 
-
 @router.get("/{item_id}/health")
 def get_livestock_health(item_id: int):
     return {"health_records": []}
-
 
 @router.get("/{item_id}/production")
 def get_livestock_production(item_id: int):

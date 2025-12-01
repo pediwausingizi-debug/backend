@@ -48,10 +48,9 @@ async def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
         user = db.query(User).filter(User.email == email).first()
 
         # -------------------------------------------------------
-        # CASE A — First time Google login → Create Admin + Farm
+        # CASE A — First login → Create Admin + Farm
         # -------------------------------------------------------
         if not user:
-            # Create a new farm for this admin
             farm = Farm(name=f"{name}'s Farm")
             db.add(farm)
             db.commit()
@@ -95,52 +94,18 @@ async def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
         # 3. Create backend JWT including role + farm_id
         backend_token = create_backend_jwt(user)
 
-        # 4. Invalidate cached profile
+        # 4. Invalidate old cached profile
         await cache_delete(f"user:me:{user.id}")
 
+        # 5. Return JSON-safe response
         return {
-            "user": UserRead.model_validate(user),
+            "user": UserRead.model_validate(user).model_dump(mode="json"),
             "token": backend_token,
         }
 
     except Exception as e:
         print("GOOGLE LOGIN ERROR:", e)
         raise HTTPException(status_code=401, detail="Invalid Google token")
-
-
-# -------------------------------------------------
-# ADMIN: Create Manager / Worker
-# -------------------------------------------------
-#@router.post("/admin/create-user")
-async def admin_create_user(
-    payload: UserCreateByAdmin,
-    auth_user=Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    if auth_user["role"] != "Admin":
-        raise HTTPException(status_code=403, detail="Admins only")
-
-    if payload.role not in ["Manager", "Worker"]:
-        raise HTTPException(status_code=400, detail="Invalid role")
-
-    # Check if user already exists
-    existing = db.query(User).filter(User.email == payload.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="User already exists")
-
-    # New user belongs to Admin’s farm
-    new_user = User(
-        email=payload.email,
-        name=payload.name,
-        role=payload.role,
-        farm_id=auth_user["farm_id"],
-    )
-
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-
-    return UserRead.model_validate(new_user)
 
 
 # -------------------------------------------------
@@ -163,14 +128,16 @@ async def update_user(
     db.commit()
     db.refresh(db_user)
 
-    # update cached profile
+    json_safe_user = UserRead.model_validate(db_user).model_dump(mode="json")
+
+    # Update cache
     await cache_set(
         f"user:me:{db_user.id}",
-        UserRead.model_validate(db_user).model_dump(),
+        json_safe_user,
         expire_seconds=120,
     )
 
-    return UserRead.model_validate(db_user)
+    return json_safe_user
 
 
 # -------------------------------------------------
@@ -192,11 +159,13 @@ async def me(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    payload = UserRead.model_validate(db_user).model_dump()
+    # JSON-safe conversion
+    payload = UserRead.model_validate(db_user).model_dump(mode="json")
 
     await cache_set(cache_key, payload, expire_seconds=120)
 
     return payload
+
 
 # -------------------------------------------------
 # ADMIN: Invite Manager / Worker (email + password)
@@ -204,10 +173,12 @@ async def me(
 from utils.password_utils import hash_password
 from utils.email_utils import send_email
 import secrets
+
 class InviteRequest(BaseModel):
     email: EmailStr
     name: str
     role: str  # Manager | Worker
+
 
 @router.post("/admin/invite")
 async def invite_user(
@@ -215,26 +186,18 @@ async def invite_user(
     auth_user=Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Only admins
     if auth_user["role"] != "Admin":
         raise HTTPException(status_code=403, detail="Admins only")
 
     if payload.role not in ["Manager", "Worker"]:
         raise HTTPException(status_code=400, detail="Invalid role")
 
-    # Exists already?
-    existing = (
-        db.query(User)
-        .filter(User.email == payload.email)
-        .first()
-    )
+    existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="User already exists")
 
-    # 1) Generate temporary password
-    temp_password = secrets.token_hex(4)   # 8 chars
+    temp_password = secrets.token_hex(4)
 
-    # 2) Create user
     new_user = User(
         email=payload.email,
         name=payload.name,
@@ -246,7 +209,6 @@ async def invite_user(
     db.commit()
     db.refresh(new_user)
 
-    # 3) Create worker entry
     worker = Worker(
         name=payload.name,
         role=payload.role,
@@ -258,7 +220,6 @@ async def invite_user(
     db.add(worker)
     db.commit()
 
-    # 4) Send invite email
     try:
         send_email(
             to=payload.email,
@@ -279,12 +240,17 @@ async def invite_user(
     return {
         "message": "User invited successfully",
         "user_id": new_user.id,
-        "worker_id": worker.id
+        "worker_id": worker.id,
     }
 
+
+# -------------------------------------------------
+# EMAIL/PASSWORD LOGIN
+# -------------------------------------------------
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
 
 @router.post("/login")
 async def email_login(payload: LoginRequest, db: Session = Depends(get_db)):
@@ -302,6 +268,6 @@ async def email_login(payload: LoginRequest, db: Session = Depends(get_db)):
     token = create_backend_jwt(user)
 
     return {
-        "user": UserRead.model_validate(user),
+        "user": UserRead.model_validate(user).model_dump(mode="json"),
         "token": token,
     }
