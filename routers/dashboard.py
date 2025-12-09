@@ -10,7 +10,7 @@ from utils.auth_utils import get_current_user
 from utils.cache import cache_get, cache_set
 import models
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter(tags=["Dashboard"])
 
 
 # -------------------------------------------------------------

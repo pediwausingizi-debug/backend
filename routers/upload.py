@@ -5,7 +5,7 @@ from utils.auth_utils import get_current_user
 from database import get_db
 import models, schemas
 
-router = APIRouter(prefix="/upload", tags=["Upload"])
+router = APIRouter(tags=["Upload"])
 
 
 # --------------------------------------------------------

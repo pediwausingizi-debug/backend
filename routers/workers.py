@@ -8,7 +8,7 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
 
-router = APIRouter(prefix="/workers", tags=["Workers"])
+router = APIRouter(tags=["Workers"])
 
 
 # Helper: real DB user + farm validation

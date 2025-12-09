@@ -10,7 +10,7 @@ from utils.auth_utils import get_current_user
 from utils.cache import cache_get, cache_set, cache_delete
 import models, schemas
 
-router = APIRouter(prefix="/finance", tags=["Finance"])
+router = APIRouter(tags=["Finance"])
 
 
 # ---------------------------------------------------------
