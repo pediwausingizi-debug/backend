@@ -17,13 +17,15 @@ from routers import (
     dashboard,
 )
 
+# IMPORTANT: Disable slash redirects
 app = FastAPI(
     title="Farm Management System API",
-    version="1.0.0"
+    version="1.0.0",
+    redirect_slashes=False  # <── FIXES 307 REDIRECT ISSUE
 )
 
 # -----------------------------------------------------------
-# CORS CONFIGURATION (Final Production-Safe Version)
+# CORS CONFIGURATION
 # -----------------------------------------------------------
 
 ALLOWED_ORIGINS = [
@@ -36,7 +38,7 @@ ALLOWED_ORIGINS = [
     "https://farmxpat.com",
     "https://www.farmxpat.com",
 
-    # Railway backend domain (allows tests + prevents OPTIONS fail)
+    # Railway backend domain
     "https://farm-xpat-production.up.railway.app",
 ]
 
