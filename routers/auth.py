@@ -147,8 +147,10 @@ async def me(
     db: Session = Depends(get_db),
 ):
     uid = auth_user["user_id"]
+    farm_id = auth_user["farm_id"]
     cache_key = f"user:me:{uid}"
 
+    # Try cache first
     cached = await cache_get(cache_key)
     if cached:
         return cached
@@ -157,19 +159,25 @@ async def me(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Count unread notifications
+    # Count UNREAD notifications for the entire farm
     unread = (
         db.query(Notification)
-        .filter(Notification.user_id == uid, Notification.read == False)
+        .filter(
+            Notification.farm_id == farm_id,
+            Notification.read == False
+        )
         .count()
     )
 
+    # Build JSON response
     payload = UserRead.model_validate(db_user).model_dump(mode="json")
     payload["unread_notifications"] = unread
 
+    # Cache it
     await cache_set(cache_key, payload, expire_seconds=120)
 
     return payload
+
 
 
 

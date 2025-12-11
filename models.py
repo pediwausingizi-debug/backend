@@ -244,12 +244,17 @@ class Notification(Base):
     read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # The notification belongs to a FARM, not a single user
     farm_id = Column(Integer, ForeignKey("farms.id"), nullable=False)
     farm = relationship("Farm", back_populates="notifications")
 
+    # Who triggered/created the notification
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_by = relationship("User", back_populates="created_notifications", foreign_keys=[created_by_id])
-
+    created_by = relationship(
+        "User",
+        back_populates="created_notifications",
+        foreign_keys=[created_by_id]
+    )
 
 # =====================================================================
 # WORKERS
