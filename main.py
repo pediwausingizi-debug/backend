@@ -21,7 +21,7 @@ from routers import (
 app = FastAPI(
     title="Farm Management System API",
     version="1.0.0",
-    redirect_slashes=False  # <── FIXES 307 REDIRECT ISSUE
+    redirect_slashes=False
 )
 
 # -----------------------------------------------------------

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from firebase_admin import auth as firebase_auth
 
 from database import get_db
-from models import User, Farm, Worker
+from models import User, Farm, Worker, Notification
 from schemas import UserRead, UserUpdate
 from utils.auth_utils import create_backend_jwt, get_current_user
 from utils.cache import cache_get, cache_set, cache_delete
@@ -25,11 +25,12 @@ class GoogleLoginRequest(BaseModel):
 class UserCreateByAdmin(BaseModel):
     email: EmailStr
     name: str
-    role: str   # Manager | Worker
+    role: str  # Manager | Worker
 
 
 # -------------------------------------------------
-# GOOGLE LOGIN (ADMIN ONLY FOR FIRST TIME)
+# GOOGLE LOGIN
+# Creates Admin + Farm if first login
 # -------------------------------------------------
 @router.post("/google-login")
 async def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
@@ -44,12 +45,10 @@ async def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
         if not email:
             raise HTTPException(status_code=400, detail="Google token missing email")
 
-        # 1. Check if user exists
+        # Check if user exists
         user = db.query(User).filter(User.email == email).first()
 
-        # -------------------------------------------------------
         # CASE A — First login → Create Admin + Farm
-        # -------------------------------------------------------
         if not user:
             farm = Farm(name=f"{name}'s Farm")
             db.add(farm)
@@ -69,35 +68,31 @@ async def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
             db.refresh(user)
 
         else:
-            # -------------------------------------------------------
-            # CASE B — Existing User Logging In
-            # -------------------------------------------------------
+            # CASE B — Existing User Login
             updated = False
 
             if not user.firebase_uid:
                 user.firebase_uid = firebase_uid
                 updated = True
 
-            if name and user.name != name:
+            if name and name != user.name:
                 user.name = name
                 updated = True
 
-            if picture and user.picture != picture:
+            if picture and picture != user.picture:
                 user.picture = picture
                 updated = True
 
             if updated:
-                db.add(user)
                 db.commit()
                 db.refresh(user)
 
-        # 3. Create backend JWT including role + farm_id
+        # Create backend JWT
         backend_token = create_backend_jwt(user)
 
-        # 4. Invalidate old cached profile
+        # Invalidate cache
         await cache_delete(f"user:me:{user.id}")
 
-        # 5. Return JSON-safe response
         return {
             "user": UserRead.model_validate(user).model_dump(mode="json"),
             "token": backend_token,
@@ -106,6 +101,7 @@ async def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
     except Exception as e:
         print("GOOGLE LOGIN ERROR:", e)
         raise HTTPException(status_code=401, detail="Invalid Google token")
+
 
 
 # -------------------------------------------------
@@ -140,8 +136,10 @@ async def update_user(
     return json_safe_user
 
 
+
 # -------------------------------------------------
 # CURRENT USER (CACHED)
+# returns: user + unread_notifications
 # -------------------------------------------------
 @router.get("/me")
 async def me(
@@ -159,16 +157,24 @@ async def me(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # JSON-safe conversion
+    # Count unread notifications
+    unread = (
+        db.query(Notification)
+        .filter(Notification.user_id == uid, Notification.read == False)
+        .count()
+    )
+
     payload = UserRead.model_validate(db_user).model_dump(mode="json")
+    payload["unread_notifications"] = unread
 
     await cache_set(cache_key, payload, expire_seconds=120)
 
     return payload
 
 
+
 # -------------------------------------------------
-# ADMIN: Invite Manager / Worker (email + password)
+# ADMIN INVITE WORKER OR MANAGER
 # -------------------------------------------------
 from utils.password_utils import hash_password
 from utils.email_utils import send_email
@@ -184,7 +190,7 @@ class InviteRequest(BaseModel):
 async def invite_user(
     payload: InviteRequest,
     auth_user=Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     if auth_user["role"] != "Admin":
         raise HTTPException(status_code=403, detail="Admins only")
@@ -215,7 +221,7 @@ async def invite_user(
         email=payload.email,
         status="Active",
         farm_id=auth_user["farm_id"],
-        created_by_id=auth_user["user_id"]
+        created_by_id=auth_user["user_id"],
     )
     db.add(worker)
     db.commit()
@@ -231,8 +237,8 @@ async def invite_user(
                 f"Email: {payload.email}\n"
                 f"Temporary Password: {temp_password}\n\n"
                 f"Please log in and update your password.\n\n"
-                "FarmXpat Team"
-            )
+                "— FarmXpat Team"
+            ),
         )
     except Exception as e:
         print("EMAIL SEND ERROR:", e)
@@ -242,6 +248,7 @@ async def invite_user(
         "user_id": new_user.id,
         "worker_id": worker.id,
     }
+
 
 
 # -------------------------------------------------
@@ -255,15 +262,64 @@ class LoginRequest(BaseModel):
 @router.post("/login")
 async def email_login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
+
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     if not user.password_hash:
-        raise HTTPException(status_code=400, detail="This account uses Google login")
+        raise HTTPException(
+            status_code=400, detail="This account uses Google login"
+        )
 
     from utils.password_utils import verify_password
+
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect password")
+
+    token = create_backend_jwt(user)
+
+    return {
+        "user": UserRead.model_validate(user).model_dump(mode="json"),
+        "token": token,
+    }
+
+
+
+# -------------------------------------------------
+# EMAIL/PASSWORD REGISTRATION (Creates Farm + Admin)
+# -------------------------------------------------
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    farm_name: str
+
+
+@router.post("/register")
+async def email_register(payload: RegisterRequest, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == payload.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="User already exists")
+
+    # Create farm
+    farm = Farm(name=payload.farm_name)
+    db.add(farm)
+    db.commit()
+    db.refresh(farm)
+
+    # Create admin
+    from utils.password_utils import hash_password
+
+    user = User(
+        email=payload.email,
+        name=payload.name,
+        role="Admin",
+        password_hash=hash_password(payload.password),
+        farm_id=farm.id,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
     token = create_backend_jwt(user)
 
