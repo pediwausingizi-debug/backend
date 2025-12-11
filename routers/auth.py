@@ -68,7 +68,7 @@ async def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
             db.refresh(user)
 
         else:
-            # CASE B — Existing User Login
+            # CASE B — Existing user login
             updated = False
 
             if not user.firebase_uid:
@@ -139,7 +139,7 @@ async def update_user(
 
 # -------------------------------------------------
 # CURRENT USER (CACHED)
-# returns: user + unread_notifications
+# Returns: user + unread_notifications
 # -------------------------------------------------
 @router.get("/me")
 async def me(
