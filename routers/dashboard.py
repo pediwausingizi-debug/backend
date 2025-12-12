@@ -10,7 +10,11 @@ from utils.auth_utils import get_current_user
 from utils.cache import cache_get, cache_set
 import models
 
-router = APIRouter(tags=["Dashboard"])
+# ✅ FIX: Add prefix so all routes become /api/dashboard/...
+router = APIRouter(
+    prefix="/dashboard",
+    tags=["dashboard"]
+)
 
 
 # -------------------------------------------------------------
@@ -31,7 +35,7 @@ def get_farm_user(user_data, db):
 
 
 # -------------------------------------------------------------
-# GET /dashboard/stats  (Always returns valid JSON)
+# GET /dashboard/stats
 # -------------------------------------------------------------
 @router.get("/stats")
 async def get_dashboard_stats(
@@ -47,7 +51,6 @@ async def get_dashboard_stats(
     if cached:
         return cached
 
-    # ---- Counts (0 if empty) ----
     total_livestock = db.query(models.Livestock).filter(
         models.Livestock.farm_id == farm_id
     ).count()
@@ -65,7 +68,6 @@ async def get_dashboard_stats(
         models.User.role.in_(["Manager", "Worker"])
     ).count()
 
-    # ---- Finance (last 30 days) ----
     since = datetime.utcnow() - timedelta(days=30)
 
     txs = db.query(models.Transaction).filter(
@@ -90,7 +92,7 @@ async def get_dashboard_stats(
 
 
 # -------------------------------------------------------------
-# GET /dashboard/recent-activities  (safe, even if empty)
+# GET /dashboard/recent-activities
 # -------------------------------------------------------------
 @router.get("/recent-activities")
 async def get_recent_activities(
@@ -106,9 +108,8 @@ async def get_recent_activities(
     if cached:
         return cached
 
-    recent: List[dict] = []
+    recent = []
 
-    # ---- Recent Transactions ----
     txs = db.query(models.Transaction).filter(
         models.Transaction.farm_id == farm_id
     ).order_by(models.Transaction.date.desc()).limit(5).all()
@@ -121,7 +122,6 @@ async def get_recent_activities(
             "timestamp": t.date.isoformat(),
         })
 
-    # ---- Recent Notifications ----
     notifs = db.query(models.Notification).filter(
         models.Notification.farm_id == farm_id
     ).order_by(models.Notification.created_at.desc()).limit(5).all()
@@ -134,11 +134,8 @@ async def get_recent_activities(
             "timestamp": n.created_at.isoformat(),
         })
 
-    # Sort by most recent
     sorted_recent = sorted(
-        recent,
-        key=lambda r: r["timestamp"],
-        reverse=True
+        recent, key=lambda r: r["timestamp"], reverse=True
     )[:10]
 
     await cache_set(cache_key, sorted_recent)
@@ -146,7 +143,7 @@ async def get_recent_activities(
 
 
 # -------------------------------------------------------------
-# GET /dashboard/alerts  (safe JSON, empty array if none)
+# GET /dashboard/alerts
 # -------------------------------------------------------------
 @router.get("/alerts")
 async def get_alerts(
@@ -162,7 +159,7 @@ async def get_alerts(
     if cached:
         return cached
 
-    low_stock_items = db.query(models.InventoryItem).filter(
+    low_stock = db.query(models.InventoryItem).filter(
         models.InventoryItem.farm_id == farm_id,
         models.InventoryItem.reorder_level != None,
         models.InventoryItem.quantity <= models.InventoryItem.reorder_level
@@ -172,7 +169,7 @@ async def get_alerts(
         "id": f"inv-{i.id}",
         "title": f"Low stock: {i.name}",
         "message": f"{i.quantity} remaining (reorder level {i.reorder_level})"
-    } for i in low_stock_items]
+    } for i in low_stock]
 
     await cache_set(cache_key, alerts)
     return alerts

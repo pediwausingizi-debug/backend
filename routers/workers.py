@@ -8,8 +8,10 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
 
-router = APIRouter(tags=["Workers"])
-
+router = APIRouter(
+    prefix="",          # ← FIXED: ensures URLs mount under /api/workers
+    tags=["Workers"]
+)
 
 # Helper: real DB user + farm validation
 def get_db_user(user_data, db):
@@ -47,7 +49,7 @@ async def get_workers(
 
 
 # -------------------------------------------------------------------
-# CREATE worker (JSON-safe)
+# CREATE worker
 # -------------------------------------------------------------------
 @router.post("/", response_model=schemas.WorkerRead, status_code=status.HTTP_201_CREATED)
 async def create_worker(
@@ -71,7 +73,7 @@ async def create_worker(
 
 
 # -------------------------------------------------------------------
-# GET worker by ID (JSON-safe)
+# GET worker by ID
 # -------------------------------------------------------------------
 @router.get("/{worker_id}", response_model=schemas.WorkerRead)
 async def get_worker(
@@ -93,7 +95,7 @@ async def get_worker(
 
 
 # -------------------------------------------------------------------
-# UPDATE worker (JSON-safe)
+# UPDATE worker
 # -------------------------------------------------------------------
 @router.put("/{worker_id}", response_model=schemas.WorkerRead)
 async def update_worker(
@@ -122,7 +124,7 @@ async def update_worker(
 
 
 # -------------------------------------------------------------------
-# DELETE worker (simple)
+# DELETE worker
 # -------------------------------------------------------------------
 @router.delete("/{worker_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_worker(

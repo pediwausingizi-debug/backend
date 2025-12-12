@@ -10,7 +10,11 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
 
-router = APIRouter(tags=["Notifications"])
+# ✅ IMPORTANT FIX — ensures /api/notifications maps correctly
+router = APIRouter(
+    prefix="",
+    tags=["notifications"]
+)
 
 
 # ---------------------------------------------------------
@@ -31,7 +35,7 @@ def get_farm_user(user_data, db):
 
 
 # ---------------------------------------------------------
-# GET /notifications (farm-wide, cached, JSON-safe)
+# GET /api/notifications
 # ---------------------------------------------------------
 @router.get("/", response_model=List[schemas.NotificationRead])
 async def list_notifications(
@@ -64,8 +68,7 @@ async def list_notifications(
 
 
 # ---------------------------------------------------------
-# POST /notifications (Admin or Manager)
-# JSON-safe return
+# POST /api/notifications
 # ---------------------------------------------------------
 @router.post("/", response_model=schemas.NotificationRead, status_code=status.HTTP_201_CREATED)
 async def create_notification(
@@ -97,8 +100,7 @@ async def create_notification(
 
 
 # ---------------------------------------------------------
-# PUT /notifications/{id}/read
-# JSON-safe return
+# PUT /api/notifications/{id}/read
 # ---------------------------------------------------------
 @router.put("/{notification_id}/read", response_model=schemas.NotificationRead)
 async def mark_as_read(
@@ -106,7 +108,6 @@ async def mark_as_read(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
 

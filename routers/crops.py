@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from sqlalchemy.orm import Session
 
@@ -7,8 +7,10 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
 
-router = APIRouter(tags=["Crops"])
-
+router = APIRouter(
+    prefix="/crops",   # ✅ FIXED
+    tags=["crops"]
+)
 
 # --------------------------------------------
 # Helper: load user + validate farm
@@ -28,9 +30,9 @@ def get_farm_user(user_data, db):
 
 
 # --------------------------------------------
-# GET /crops   → return empty [] if none
+# GET /api/crops
 # --------------------------------------------
-@router.get("/", response_model=List[schemas.CropRead])
+@router.get("", response_model=List[schemas.CropRead])
 async def list_crops(
     db: Session = Depends(get_db),
     user=Depends(get_current_user)
@@ -41,13 +43,12 @@ async def list_crops(
     cache_key = f"crops:list:farm:{farm_id}"
     cached = await cache_get(cache_key)
     if cached:
-        return cached  # already JSON-safe
+        return cached
 
     crops = db.query(models.Crop).filter(
         models.Crop.farm_id == farm_id
     ).all()
 
-    # ALWAYS safe JSON version
     payload = [
         schemas.CropRead.model_validate(c).model_dump()
         for c in crops
@@ -58,9 +59,9 @@ async def list_crops(
 
 
 # --------------------------------------------
-# POST /crops
+# POST /api/crops
 # --------------------------------------------
-@router.post("/", response_model=schemas.CropRead, status_code=201)
+@router.post("", response_model=schemas.CropRead, status_code=201)
 async def create_crop(
     payload: schemas.CropCreate,
     db: Session = Depends(get_db),
@@ -78,7 +79,6 @@ async def create_crop(
     db.commit()
     db.refresh(crop)
 
-    # clear cached lists + dashboard
     await cache_delete(f"crops:list:farm:{farm_id}")
     await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
@@ -86,7 +86,7 @@ async def create_crop(
 
 
 # --------------------------------------------
-# GET /crops/{id}
+# GET /api/crops/{id}
 # --------------------------------------------
 @router.get("/{crop_id}", response_model=schemas.CropRead)
 async def get_crop(
@@ -100,7 +100,7 @@ async def get_crop(
     cache_key = f"crops:item:farm:{farm_id}:{crop_id}"
     cached = await cache_get(cache_key)
     if cached:
-        return cached  # JSON-safe
+        return cached
 
     crop = db.query(models.Crop).filter(
         models.Crop.id == crop_id,
@@ -111,13 +111,13 @@ async def get_crop(
         raise HTTPException(404, "Crop not found")
 
     payload = schemas.CropRead.model_validate(crop).model_dump()
-
     await cache_set(cache_key, payload)
+
     return payload
 
 
 # --------------------------------------------
-# PUT /crops/{id}
+# PUT /api/crops/{id}
 # --------------------------------------------
 @router.put("/{crop_id}", response_model=schemas.CropRead)
 async def update_crop(
@@ -143,7 +143,6 @@ async def update_crop(
     db.commit()
     db.refresh(crop)
 
-    # clear all cache for this farm + item
     await cache_delete(f"crops:list:farm:{farm_id}")
     await cache_delete(f"crops:item:farm:{farm_id}:{crop_id}")
     await cache_delete(f"dashboard:stats:farm:{farm_id}")
@@ -152,7 +151,7 @@ async def update_crop(
 
 
 # --------------------------------------------
-# DELETE /crops/{id}
+# DELETE /api/crops/{id}
 # --------------------------------------------
 @router.delete("/{crop_id}", status_code=204)
 async def delete_crop(

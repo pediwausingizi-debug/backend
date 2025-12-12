@@ -6,7 +6,11 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models
 
-router = APIRouter()
+# ✅ FIX — Add prefix="" so the main include_router prefix works
+router = APIRouter(
+    prefix="",
+    tags=["reports"]
+)
 
 
 # -------------------------------------------------------------
@@ -27,7 +31,7 @@ def get_db_user(user_data, db):
 
 
 # -------------------------------------------------------------
-# LIVESTOCK REPORT (FARM-WIDE)
+# LIVESTOCK REPORT  →  /api/reports/livestock
 # -------------------------------------------------------------
 @router.get("/livestock")
 async def get_livestock_report(
@@ -74,7 +78,7 @@ async def get_livestock_report(
 
 
 # -------------------------------------------------------------
-# CROPS REPORT (FARM-WIDE)
+# CROPS REPORT  →  /api/reports/crops
 # -------------------------------------------------------------
 @router.get("/crops")
 async def get_crops_report(
@@ -119,7 +123,7 @@ async def get_crops_report(
 
 
 # -------------------------------------------------------------
-# FINANCIAL REPORT (FARM-WIDE)
+# FINANCIAL REPORT  →  /api/reports/financial
 # -------------------------------------------------------------
 @router.get("/financial")
 async def get_financial_report(
@@ -159,7 +163,7 @@ async def get_financial_report(
 
 
 # -------------------------------------------------------------
-# INVENTORY REPORT (FARM-WIDE)
+# INVENTORY REPORT  →  /api/reports/inventory
 # -------------------------------------------------------------
 @router.get("/inventory")
 async def get_inventory_report(
@@ -179,17 +183,12 @@ async def get_inventory_report(
     ).all()
 
     total_items = len(items)
-
     low_stock_items = len([
         i for i in items
         if i.reorder_level is not None and (i.quantity or 0) <= (i.reorder_level or 0)
     ])
-
     out_of_stock = len([i for i in items if (i.quantity or 0) == 0])
-
-    total_value = sum(
-        (i.quantity or 0) for i in items
-    )  # add price * quantity later if needed
+    total_value = sum((i.quantity or 0) for i in items)
 
     payload = {
         "total_items": total_items,

@@ -10,7 +10,11 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
 
-router = APIRouter(tags=["Livestock"])
+# ✅ FIX: Ensure router aligns with /api/livestock prefix in main.py
+router = APIRouter(
+    prefix="",
+    tags=["livestock"]
+)
 
 
 # ---------------------------------------------------------
@@ -31,7 +35,7 @@ def get_farm_user(user_data, db):
 
 
 # ---------------------------------------------------------
-# GET /livestock  (JSON-safe, cached)
+# GET /api/livestock/
 # ---------------------------------------------------------
 @router.get("/", response_model=List[schemas.LivestockRead])
 async def list_livestock(
@@ -51,7 +55,6 @@ async def list_livestock(
         models.Livestock.farm_id == farm_id
     ).all()
 
-    # ORM -> JSON dicts (safe)
     serialized = [
         schemas.LivestockRead.model_validate(a).model_dump()
         for a in animals
@@ -62,7 +65,7 @@ async def list_livestock(
 
 
 # ---------------------------------------------------------
-# POST /livestock  (create, JSON-safe)
+# POST /api/livestock/
 # ---------------------------------------------------------
 @router.post("/", response_model=schemas.LivestockRead, status_code=status.HTTP_201_CREATED)
 async def create_livestock(
@@ -85,7 +88,6 @@ async def create_livestock(
     db.commit()
     db.refresh(animal)
 
-    # Clear caches
     await cache_delete(f"livestock:list:farm:{farm_id}")
     await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
@@ -93,7 +95,7 @@ async def create_livestock(
 
 
 # ---------------------------------------------------------
-# GET /livestock/{id}  (JSON-safe, cached)
+# GET /api/livestock/{id}
 # ---------------------------------------------------------
 @router.get("/{item_id}", response_model=schemas.LivestockRead)
 async def get_livestock_item(
@@ -125,7 +127,7 @@ async def get_livestock_item(
 
 
 # ---------------------------------------------------------
-# PUT /livestock/{id}  (JSON-safe)
+# PUT /api/livestock/{id}
 # ---------------------------------------------------------
 @router.put("/{item_id}", response_model=schemas.LivestockRead)
 async def update_livestock(
@@ -160,7 +162,7 @@ async def update_livestock(
 
 
 # ---------------------------------------------------------
-# DELETE /livestock/{id}
+# DELETE /api/livestock/{id}
 # ---------------------------------------------------------
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_livestock(
@@ -191,15 +193,17 @@ async def delete_livestock(
 
 
 # ---------------------------------------------------------
-# ADDITIONAL SIMPLE ENDPOINTS
+# SIMPLE EXTRA ENDPOINTS
 # ---------------------------------------------------------
 @router.get("/{item_id}/feed")
 def get_livestock_feed(item_id: int):
     return {"feed_records": []}
 
+
 @router.get("/{item_id}/health")
 def get_livestock_health(item_id: int):
     return {"health_records": []}
+
 
 @router.get("/{item_id}/production")
 def get_livestock_production(item_id: int):

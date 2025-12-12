@@ -10,7 +10,11 @@ from utils.auth_utils import get_current_user
 from utils.cache import cache_get, cache_set, cache_delete
 import models, schemas
 
-router = APIRouter(tags=["Finance"])
+# ✅ FIX: prefix="" so paths become /api/finance/...
+router = APIRouter(
+    prefix="",
+    tags=["finance"]
+)
 
 
 # ---------------------------------------------------------
@@ -31,7 +35,7 @@ def get_farm_user(user_data, db):
 
 
 # ---------------------------------------------------------
-# GET /finance/transactions  (JSON-safe, cached)
+# GET /transactions
 # ---------------------------------------------------------
 @router.get("/transactions", response_model=List[schemas.TransactionRead])
 async def get_transactions(
@@ -54,7 +58,6 @@ async def get_transactions(
         .all()
     )
 
-    # Convert SQLAlchemy models → JSON-serializable dictionaries
     serialized = [
         schemas.TransactionRead.model_validate(t).model_dump()
         for t in txs
@@ -65,10 +68,13 @@ async def get_transactions(
 
 
 # ---------------------------------------------------------
-# POST /finance/transactions  (JSON-safe)
+# POST /transactions
 # ---------------------------------------------------------
-@router.post("/transactions", response_model=schemas.TransactionRead,
-             status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/transactions",
+    response_model=schemas.TransactionRead,
+    status_code=status.HTTP_201_CREATED
+)
 async def create_transaction(
     payload: schemas.TransactionCreate,
     db: Session = Depends(get_db),
@@ -80,7 +86,6 @@ async def create_transaction(
 
     tx_data = payload.dict()
 
-    # Ensure datetime is always present
     if not tx_data.get("date"):
         tx_data["date"] = datetime.utcnow()
 
@@ -94,7 +99,6 @@ async def create_transaction(
     db.commit()
     db.refresh(tx)
 
-    # Invalidate related caches
     await cache_delete(f"finance:txs:farm:{farm_id}")
     await cache_delete(f"finance:summary:farm:{farm_id}")
     await cache_delete(f"dashboard:stats:farm:{farm_id}")
@@ -104,7 +108,7 @@ async def create_transaction(
 
 
 # ---------------------------------------------------------
-# GET /finance/summary  (JSON-safe, cached)
+# GET /summary
 # ---------------------------------------------------------
 @router.get("/summary")
 async def get_financial_summary(
@@ -124,7 +128,6 @@ async def get_financial_summary(
         models.Transaction.farm_id == farm_id
     ).all()
 
-    # Convert Decimal → float to avoid JSON errors
     total_income = sum(float(t.amount) for t in txs if t.type == "income")
     total_expenses = sum(float(t.amount) for t in txs if t.type == "expense")
 

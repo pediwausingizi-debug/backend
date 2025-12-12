@@ -5,7 +5,11 @@ from utils.auth_utils import get_current_user
 from database import get_db
 import models, schemas
 
-router = APIRouter(tags=["Upload"])
+# ✅ Must include empty prefix so main include_router prefix works correctly
+router = APIRouter(
+    prefix="",
+    tags=["Upload"]
+)
 
 
 # --------------------------------------------------------
@@ -26,7 +30,8 @@ def get_db_user(user_data, db):
 
 
 # --------------------------------------------------------
-# Save image for livestock (farm scoped)
+# POST /upload/animal/{animal_id}
+# Save image for livestock
 # --------------------------------------------------------
 @router.post("/animal/{animal_id}")
 def save_animal_image(
@@ -54,11 +59,16 @@ def save_animal_image(
     db.commit()
     db.refresh(animal)
 
-    return {"message": "Image saved", "animal": animal}
+    # Always return JSON-safe response
+    return {
+        "message": "Image saved",
+        "animal": schemas.LivestockRead.model_validate(animal).model_dump()
+    }
 
 
 # --------------------------------------------------------
-# Save image for crop (farm scoped)
+# POST /upload/crop/{crop_id}
+# Save image for crop
 # --------------------------------------------------------
 @router.post("/crop/{crop_id}")
 def save_crop_image(
@@ -86,4 +96,7 @@ def save_crop_image(
     db.commit()
     db.refresh(crop)
 
-    return {"message": "Image saved", "crop": crop}
+    return {
+        "message": "Image saved",
+        "crop": schemas.CropRead.model_validate(crop).model_dump()
+    }

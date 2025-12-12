@@ -9,7 +9,11 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
 
-router = APIRouter(tags=["Inventory"])
+# ✅ FIX: add prefix="" so paths work under /api/inventory/*
+router = APIRouter(
+    prefix="",
+    tags=["inventory"]
+)
 
 
 # ---------------------------------------------------------
@@ -30,7 +34,7 @@ def get_farm_user(user_data, db):
 
 
 # ---------------------------------------------------------
-# GET /inventory  (JSON-safe, cached)
+# GET /api/inventory/
 # ---------------------------------------------------------
 @router.get("/", response_model=List[schemas.InventoryRead])
 async def list_inventory(
@@ -50,7 +54,6 @@ async def list_inventory(
         models.InventoryItem.farm_id == farm_id
     ).all()
 
-    # Convert ORM → JSON dicts (safe for Redis)
     serialized = [
         schemas.InventoryRead.model_validate(i).model_dump()
         for i in items
@@ -61,7 +64,7 @@ async def list_inventory(
 
 
 # ---------------------------------------------------------
-# POST /inventory  (JSON-safe)
+# POST /api/inventory/
 # ---------------------------------------------------------
 @router.post("/", response_model=schemas.InventoryRead, status_code=status.HTTP_201_CREATED)
 async def create_inventory_item(
@@ -83,7 +86,6 @@ async def create_inventory_item(
     db.commit()
     db.refresh(item)
 
-    # Invalidate caches
     await cache_delete(f"inventory:list:farm:{farm_id}")
     await cache_delete(f"dashboard:stats:farm:{farm_id}")
 
@@ -91,7 +93,7 @@ async def create_inventory_item(
 
 
 # ---------------------------------------------------------
-# GET /inventory/{id}  (JSON-safe, cached)
+# GET /api/inventory/{id}
 # ---------------------------------------------------------
 @router.get("/{item_id}", response_model=schemas.InventoryRead)
 async def get_inventory_item(
@@ -123,7 +125,7 @@ async def get_inventory_item(
 
 
 # ---------------------------------------------------------
-# PUT /inventory/{id}  (JSON-safe)
+# PUT /api/inventory/{id}
 # ---------------------------------------------------------
 @router.put("/{item_id}", response_model=schemas.InventoryRead)
 async def update_inventory_item(
@@ -150,7 +152,6 @@ async def update_inventory_item(
     db.commit()
     db.refresh(item)
 
-    # Clear caches
     await cache_delete(f"inventory:list:farm:{farm_id}")
     await cache_delete(f"inventory:item:farm:{farm_id}:{item_id}")
     await cache_delete(f"dashboard:stats:farm:{farm_id}")
@@ -159,7 +160,7 @@ async def update_inventory_item(
 
 
 # ---------------------------------------------------------
-# DELETE /inventory/{id}
+# DELETE /api/inventory/{id}
 # ---------------------------------------------------------
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_inventory_item(
@@ -182,7 +183,6 @@ async def delete_inventory_item(
     db.delete(item)
     db.commit()
 
-    # Clear caches
     await cache_delete(f"inventory:list:farm:{farm_id}")
     await cache_delete(f"inventory:item:farm:{farm_id}:{item_id}")
     await cache_delete(f"dashboard:stats:farm:{farm_id}")
