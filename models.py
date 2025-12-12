@@ -1,3 +1,4 @@
+# models.py
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Text, ForeignKey, Boolean
 )
@@ -18,13 +19,13 @@ class Farm(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     users = relationship("User", back_populates="farm")
-    crops = relationship("Crop", back_populates="farm")
-    livestock = relationship("Livestock", back_populates="farm")
-    inventory_items = relationship("InventoryItem", back_populates="farm")
-    transactions = relationship("Transaction", back_populates="farm")
-    notifications = relationship("Notification", back_populates="farm")
-    workers = relationship("Worker", back_populates="farm")
-    activity_logs = relationship("ActivityLog", back_populates="farm")
+    crops = relationship("Crop", back_populates="farm", cascade="all, delete-orphan")
+    livestock = relationship("Livestock", back_populates="farm", cascade="all, delete-orphan")
+    inventory_items = relationship("InventoryItem", back_populates="farm", cascade="all, delete-orphan")
+    transactions = relationship("Transaction", back_populates="farm", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="farm", cascade="all, delete-orphan")
+    workers = relationship("Worker", back_populates="farm", cascade="all, delete-orphan")
+    activity_logs = relationship("ActivityLog", back_populates="farm", cascade="all, delete-orphan")
 
 
 # =====================================================================
@@ -37,27 +38,91 @@ class User(Base):
     firebase_uid = Column(String(255), unique=True, nullable=True)
     email = Column(String(255), unique=True, nullable=False)
     name = Column(String(255), nullable=False)
-    picture = Column(String(500))
-    role = Column(String(50), default="Worker")
-    phone = Column(String(50))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    picture = Column(String(500), nullable=True)
+    role = Column(String(50), default="Worker", nullable=False)
+    phone = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    farm_name = Column(String(255))
-    farm_location = Column(String(255))
-    farm_size = Column(String(50))
+    farm_name = Column(String(255), nullable=True)
+    farm_location = Column(String(255), nullable=True)
+    farm_size = Column(String(50), nullable=True)
 
-    farm_id = Column(Integer, ForeignKey("farms.id"))
+    farm_id = Column(Integer, ForeignKey("farms.id"), nullable=True)
     farm = relationship("Farm", back_populates="users")
 
-    # Created items
-    created_crops = relationship("Crop", back_populates="created_by")
-    created_livestock = relationship("Livestock", back_populates="created_by")
-    created_inventory = relationship("InventoryItem", back_populates="created_by")
-    created_transactions = relationship("Transaction", back_populates="created_by")
-    created_notifications = relationship("Notification", back_populates="created_by")
-    created_workers = relationship("Worker", back_populates="created_by")
+    # Created items (explicit foreign_keys to avoid ambiguity)
+    created_crops = relationship(
+        "Crop",
+        back_populates="created_by",
+        foreign_keys="Crop.created_by_id",
+        cascade="all, delete-orphan",
+    )
+    added_crops = relationship(
+        "Crop",
+        back_populates="adder",
+        foreign_keys="Crop.added_by",
+        cascade="all, delete-orphan",
+    )
 
-    activity_logs = relationship("ActivityLog", back_populates="user")
+    created_livestock = relationship(
+        "Livestock",
+        back_populates="created_by",
+        foreign_keys="Livestock.created_by_id",
+        cascade="all, delete-orphan",
+    )
+    added_livestock = relationship(
+        "Livestock",
+        back_populates="adder",
+        foreign_keys="Livestock.added_by",
+        cascade="all, delete-orphan",
+    )
+
+    created_inventory = relationship(
+        "InventoryItem",
+        back_populates="created_by",
+        foreign_keys="InventoryItem.created_by_id",
+        cascade="all, delete-orphan",
+    )
+    added_inventory = relationship(
+        "InventoryItem",
+        back_populates="adder",
+        foreign_keys="InventoryItem.added_by",
+        cascade="all, delete-orphan",
+    )
+
+    created_transactions = relationship(
+        "Transaction",
+        back_populates="created_by",
+        foreign_keys="Transaction.created_by_id",
+        cascade="all, delete-orphan",
+    )
+    owned_transactions = relationship(
+        "Transaction",
+        back_populates="owner",
+        foreign_keys="Transaction.owner_id",
+        cascade="all, delete-orphan",
+    )
+
+    created_notifications = relationship(
+        "Notification",
+        back_populates="created_by",
+        foreign_keys="Notification.created_by_id",
+        cascade="all, delete-orphan",
+    )
+
+    created_workers = relationship(
+        "Worker",
+        back_populates="created_by",
+        foreign_keys="Worker.created_by_id",
+        cascade="all, delete-orphan",
+    )
+
+    activity_logs = relationship(
+        "ActivityLog",
+        back_populates="user",
+        foreign_keys="ActivityLog.created_by_id",
+        cascade="all, delete-orphan",
+    )
 
 
 # =====================================================================
@@ -68,28 +133,37 @@ class Crop(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False)
-    variety = Column(String(255))
+    variety = Column(String(255), nullable=True)
     area_hectares = Column(Float, default=0.0)
-    planting_date = Column(DateTime)
-    expected_harvest = Column(DateTime)
-    status = Column(String(50))
-    location = Column(String(255))
-    latitude = Column(Float)
-    longitude = Column(Float)
+    planting_date = Column(DateTime, nullable=True)
+    expected_harvest = Column(DateTime, nullable=True)
+    status = Column(String(50), nullable=True)
+    location = Column(String(255), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
 
     farm_id = Column(Integer, ForeignKey("farms.id"), nullable=False)
     farm = relationship("Farm", back_populates="crops")
 
-    created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_by = relationship("User", back_populates="created_crops")
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = relationship(
+        "User",
+        back_populates="created_crops",
+        foreign_keys=[created_by_id],
+    )
 
-    added_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # ⭐ NEW FIELD
+    added_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # separate FK
+    adder = relationship(
+        "User",
+        back_populates="added_crops",
+        foreign_keys=[added_by],
+    )
 
-    image_url = Column(String(500))
+    image_url = Column(String(500), nullable=True)
 
-    media = relationship("Media", back_populates="crop")
-    growth_records = relationship("CropGrowth", back_populates="crop")
-    expenses = relationship("ExpenseLink", back_populates="crop")
+    media = relationship("Media", back_populates="crop", cascade="all, delete-orphan")
+    growth_records = relationship("CropGrowth", back_populates="crop", cascade="all, delete-orphan")
+    expenses = relationship("ExpenseLink", back_populates="crop", cascade="all, delete-orphan")
 
 
 # =====================================================================
@@ -100,27 +174,36 @@ class Livestock(Base):
 
     id = Column(Integer, primary_key=True)
     type = Column(String(100), nullable=False)
-    category = Column(String(100))
-    breed = Column(String(100))
+    category = Column(String(100), nullable=True)
+    breed = Column(String(100), nullable=True)
     quantity = Column(Integer, default=0)
-    age_months = Column(Integer)
-    health_status = Column(String(100))
-    location = Column(String(255))
+    age_months = Column(Integer, nullable=True)
+    health_status = Column(String(100), nullable=True)
+    location = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     farm_id = Column(Integer, ForeignKey("farms.id"), nullable=False)
     farm = relationship("Farm", back_populates="livestock")
 
-    created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_by = relationship("User", back_populates="created_livestock")
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = relationship(
+        "User",
+        back_populates="created_livestock",
+        foreign_keys=[created_by_id],
+    )
 
-    added_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # ⭐ NEW FIELD
+    added_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    adder = relationship(
+        "User",
+        back_populates="added_livestock",
+        foreign_keys=[added_by],
+    )
 
-    image_url = Column(String(500))
+    image_url = Column(String(500), nullable=True)
 
-    media = relationship("Media", back_populates="livestock")
-    production_records = relationship("LivestockProduction", back_populates="livestock")
-    expenses = relationship("ExpenseLink", back_populates="livestock")
+    media = relationship("Media", back_populates="livestock", cascade="all, delete-orphan")
+    production_records = relationship("LivestockProduction", back_populates="livestock", cascade="all, delete-orphan")
+    expenses = relationship("ExpenseLink", back_populates="livestock", cascade="all, delete-orphan")
 
 
 # =====================================================================
@@ -133,8 +216,8 @@ class Media(Base):
     url = Column(String(500), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    crop_id = Column(Integer, ForeignKey("crops.id"))
-    livestock_id = Column(Integer, ForeignKey("livestock.id"))
+    crop_id = Column(Integer, ForeignKey("crops.id"), nullable=True)
+    livestock_id = Column(Integer, ForeignKey("livestock.id"), nullable=True)
 
     crop = relationship("Crop", back_populates="media")
     livestock = relationship("Livestock", back_populates="media")
@@ -148,19 +231,28 @@ class InventoryItem(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False)
-    category = Column(String(100))
+    category = Column(String(100), nullable=True)
     quantity = Column(Float, default=0.0)
-    unit = Column(String(50))
-    reorder_level = Column(Float)
-    supplier = Column(String(255))
+    unit = Column(String(50), nullable=True)
+    reorder_level = Column(Float, nullable=True)
+    supplier = Column(String(255), nullable=True)
 
     farm_id = Column(Integer, ForeignKey("farms.id"), nullable=False)
     farm = relationship("Farm", back_populates="inventory_items")
 
-    created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_by = relationship("User", back_populates="created_inventory")
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = relationship(
+        "User",
+        back_populates="created_inventory",
+        foreign_keys=[created_by_id],
+    )
 
-    added_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # ⭐ NEW FIELD
+    added_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    adder = relationship(
+        "User",
+        back_populates="added_inventory",
+        foreign_keys=[added_by],
+    )
 
 
 # =====================================================================
@@ -170,20 +262,29 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id = Column(Integer, primary_key=True)
-    type = Column(String(50), nullable=False)
-    category = Column(String(100))
-    amount = Column(Float, nullable=False)
-    description = Column(Text)
+    type = Column(String(50), nullable=False)  # income | expense
+    category = Column(String(100), nullable=True)
+    amount = Column(Float, nullable=False, default=0.0)
+    description = Column(Text, nullable=True)
     date = Column(DateTime, default=datetime.utcnow)
-    payment_method = Column(String(100))
+    payment_method = Column(String(100), nullable=True)
 
     farm_id = Column(Integer, ForeignKey("farms.id"), nullable=False)
     farm = relationship("Farm", back_populates="transactions")
 
-    created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_by = relationship("User", back_populates="created_transactions")
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = relationship(
+        "User",
+        back_populates="created_transactions",
+        foreign_keys=[created_by_id],
+    )
 
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # ⭐ NEW FIELD
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    owner = relationship(
+        "User",
+        back_populates="owned_transactions",
+        foreign_keys=[owner_id],
+    )
 
 
 # =====================================================================
@@ -194,16 +295,20 @@ class Notification(Base):
 
     id = Column(Integer, primary_key=True)
     title = Column(String(255), nullable=False)
-    message = Column(Text)
-    type = Column(String(50))
+    message = Column(Text, nullable=True)
+    type = Column(String(50), nullable=True)
     read = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     farm_id = Column(Integer, ForeignKey("farms.id"), nullable=False)
     farm = relationship("Farm", back_populates="notifications")
 
-    created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_by = relationship("User", back_populates="created_notifications")
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = relationship(
+        "User",
+        back_populates="created_notifications",
+        foreign_keys=[created_by_id],
+    )
 
 
 # =====================================================================
@@ -214,18 +319,22 @@ class Worker(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False)
-    role = Column(String(100))
-    phone = Column(String(50))
-    email = Column(String(255))
-    salary = Column(Float)
-    status = Column(String(50))
-    id_number = Column(String(100))
+    role = Column(String(100), nullable=True)
+    phone = Column(String(50), nullable=True)
+    email = Column(String(255), nullable=True)
+    salary = Column(Float, nullable=True)
+    status = Column(String(50), nullable=True)
+    id_number = Column(String(100), nullable=True)
 
     farm_id = Column(Integer, ForeignKey("farms.id"), nullable=False)
     farm = relationship("Farm", back_populates="workers")
 
-    created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_by = relationship("User", back_populates="created_workers")
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by = relationship(
+        "User",
+        back_populates="created_workers",
+        foreign_keys=[created_by_id],
+    )
 
 
 # =====================================================================
@@ -235,14 +344,18 @@ class ActivityLog(Base):
     __tablename__ = "activity_logs"
 
     id = Column(Integer, primary_key=True)
-    farm_id = Column(Integer, ForeignKey("farms.id"))
-    created_by_id = Column(Integer, ForeignKey("users.id"))
+    farm_id = Column(Integer, ForeignKey("farms.id"), nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    action = Column(String(255))
-    details = Column(Text)
-    entity_type = Column(String(50))
-    entity_id = Column(Integer)
+    action = Column(String(255), nullable=True)
+    details = Column(Text, nullable=True)
+    entity_type = Column(String(50), nullable=True)
+    entity_id = Column(Integer, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     farm = relationship("Farm", back_populates="activity_logs")
-    user = relationship("User", back_populates="activity_logs")
+    user = relationship(
+        "User",
+        back_populates="activity_logs",
+        foreign_keys=[created_by_id],
+    )
