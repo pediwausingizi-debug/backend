@@ -12,7 +12,7 @@ import models
 
 # ✅ FIX: Add prefix so all routes become /api/dashboard/...
 router = APIRouter(
-    prefix="/dashboard",
+    prefix="",
     tags=["dashboard"]
 )
 

@@ -8,7 +8,7 @@ from utils.auth_utils import get_current_user
 import models, schemas
 
 router = APIRouter(
-    prefix="/crops",   # ✅ FIXED
+    prefix="",
     tags=["crops"]
 )
 

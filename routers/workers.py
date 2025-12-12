@@ -9,7 +9,7 @@ from utils.auth_utils import get_current_user
 import models, schemas
 
 router = APIRouter(
-    prefix="",          # ← FIXED: ensures URLs mount under /api/workers
+    prefix="",         
     tags=["Workers"]
 )
 
