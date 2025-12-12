@@ -3,17 +3,18 @@ from typing import Optional, List
 from datetime import datetime
 
 
-
+# =====================================================================
+# INVITE
+# =====================================================================
 class InviteRequest(BaseModel):
     email: EmailStr
     name: str
     role: str  # Manager | Worker
-    
-    
-# ======================
-# USER
-# ======================
 
+
+# =====================================================================
+# USER
+# =====================================================================
 class UserFirebaseCreate(BaseModel):
     firebase_uid: str
     email: EmailStr
@@ -23,19 +24,17 @@ class UserFirebaseCreate(BaseModel):
 
 class UserRead(BaseModel):
     id: int
-    firebase_uid: Optional[str] = None
+    firebase_uid: Optional[str]
     email: EmailStr
     name: str
     role: str
     created_at: datetime
+    phone: Optional[str]
 
-    phone: Optional[str] = None
-
-    # Farm info
-    farm_id: Optional[int] = None
-    farm_name: Optional[str] = None
-    farm_location: Optional[str] = None
-    farm_size: Optional[str] = None
+    farm_id: Optional[int]
+    farm_name: Optional[str]
+    farm_location: Optional[str]
+    farm_size: Optional[str]
 
     class Config:
         from_attributes = True
@@ -52,13 +51,12 @@ class UserUpdate(BaseModel):
 class UserCreateByAdmin(BaseModel):
     email: EmailStr
     name: str
-    role: str  # Manager or Worker
+    role: str
 
 
-# ======================
+# =====================================================================
 # MEDIA
-# ======================
-
+# =====================================================================
 class MediaRead(BaseModel):
     id: int
     url: str
@@ -72,10 +70,9 @@ class ImageSaveRequest(BaseModel):
     url: str
 
 
-# ======================
+# =====================================================================
 # CROP
-# ======================
-
+# =====================================================================
 class CropBase(BaseModel):
     name: str
     variety: Optional[str] = None
@@ -84,8 +81,8 @@ class CropBase(BaseModel):
     expected_harvest: Optional[datetime] = None
     status: Optional[str] = None
     location: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: Optional[float]
+    longitude: Optional[float]
 
 
 class CropCreate(CropBase):
@@ -95,21 +92,20 @@ class CropCreate(CropBase):
 class CropRead(CropBase):
     id: int
     farm_id: int
-    created_by_id: Optional[int] = None
-    image_url: Optional[str] = None
+    created_by_id: Optional[int]
+    image_url: Optional[str]
     media: List[MediaRead] = []
 
     class Config:
         from_attributes = True
 
 
-# ======================
+# =====================================================================
 # CROP GROWTH
-# ======================
-
+# =====================================================================
 class CropGrowthBase(BaseModel):
-    height_cm: Optional[float] = None
-    notes: Optional[str] = None
+    height_cm: Optional[float]
+    notes: Optional[str]
 
 
 class CropGrowthCreate(CropGrowthBase):
@@ -125,18 +121,17 @@ class CropGrowthRead(CropGrowthBase):
         from_attributes = True
 
 
-# ======================
+# =====================================================================
 # LIVESTOCK
-# ======================
-
+# =====================================================================
 class LivestockBase(BaseModel):
     type: str
-    breed: Optional[str] = None
+    category: Optional[str]
+    breed: Optional[str]
     quantity: int = 0
-    age_months: Optional[int] = None
-    health_status: Optional[str] = None
-    location: Optional[str] = None
-    category: Optional[str] = None
+    age_months: Optional[int]
+    health_status: Optional[str]
+    location: Optional[str]
 
 
 class LivestockCreate(LivestockBase):
@@ -147,22 +142,22 @@ class LivestockRead(LivestockBase):
     id: int
     created_at: datetime
     farm_id: int
-    created_by_id: Optional[int] = None
-    image_url: Optional[str] = None
+    created_by_id: Optional[int]
+    added_by: Optional[int] = None        # ⭐ NEW: matches updated model
+    image_url: Optional[str]
     media: List[MediaRead] = []
 
     class Config:
         from_attributes = True
 
 
-# ======================
+# =====================================================================
 # LIVESTOCK PRODUCTION
-# ======================
-
+# =====================================================================
 class LivestockProductionBase(BaseModel):
     quantity: float
     unit: str
-    notes: Optional[str] = None
+    notes: Optional[str]
 
 
 class LivestockProductionCreate(LivestockProductionBase):
@@ -178,17 +173,16 @@ class LivestockProductionRead(LivestockProductionBase):
         from_attributes = True
 
 
-# ======================
+# =====================================================================
 # INVENTORY
-# ======================
-
+# =====================================================================
 class InventoryBase(BaseModel):
     name: str
-    category: Optional[str] = None
+    category: Optional[str]
     quantity: float = 0.0
-    unit: Optional[str] = None
-    reorder_level: Optional[float] = None
-    supplier: Optional[str] = None
+    unit: Optional[str]
+    reorder_level: Optional[float]
+    supplier: Optional[str]
 
 
 class InventoryCreate(InventoryBase):
@@ -198,23 +192,23 @@ class InventoryCreate(InventoryBase):
 class InventoryRead(InventoryBase):
     id: int
     farm_id: int
-    created_by_id: Optional[int] = None
+    created_by_id: Optional[int]
+    added_by: Optional[int] = None         # ⭐ NEW: matches updated model
 
     class Config:
         from_attributes = True
 
 
-# ======================
-# TRANSACTION
-# ======================
-
+# =====================================================================
+# TRANSACTIONS
+# =====================================================================
 class TransactionBase(BaseModel):
     type: str
-    category: Optional[str] = None
+    category: Optional[str]
     amount: float
-    description: Optional[str] = None
-    date: Optional[datetime] = None
-    payment_method: Optional[str] = None
+    description: Optional[str]
+    date: Optional[datetime]
+    payment_method: Optional[str]
 
 
 class TransactionCreate(TransactionBase):
@@ -224,16 +218,17 @@ class TransactionCreate(TransactionBase):
 class TransactionRead(TransactionBase):
     id: int
     farm_id: int
-    created_by_id: Optional[int] = None
+    created_by_id: Optional[int]
+
+    owner_id: Optional[int] = None         # ⭐ NEW: matches updated model
 
     class Config:
         from_attributes = True
 
 
-# ======================
+# =====================================================================
 # EXPENSE LINK
-# ======================
-
+# =====================================================================
 class ExpenseLinkRead(BaseModel):
     id: int
     transaction_id: int
@@ -244,14 +239,13 @@ class ExpenseLinkRead(BaseModel):
         from_attributes = True
 
 
-# ======================
+# =====================================================================
 # NOTIFICATIONS
-# ======================
-
+# =====================================================================
 class NotificationBase(BaseModel):
     title: str
-    message: Optional[str] = None
-    type: Optional[str] = None
+    message: Optional[str]
+    type: Optional[str]
     read: Optional[bool] = False
 
 
@@ -263,24 +257,23 @@ class NotificationRead(NotificationBase):
     id: int
     created_at: datetime
     farm_id: int
-    created_by_id: Optional[int] = None
+    created_by_id: Optional[int]
 
     class Config:
         from_attributes = True
 
 
-# ======================
-# WORKER
-# ======================
-
+# =====================================================================
+# WORKERS
+# =====================================================================
 class WorkerBase(BaseModel):
     name: str
-    role: Optional[str] = None
-    phone: Optional[str] = None
-    email: Optional[EmailStr] = None
-    salary: Optional[float] = None
-    status: Optional[str] = None
-    id_number: Optional[str] = None
+    role: Optional[str]
+    phone: Optional[str]
+    email: Optional[EmailStr]
+    salary: Optional[float]
+    status: Optional[str]
+    id_number: Optional[str]
 
 
 class WorkerCreate(WorkerBase):
@@ -290,21 +283,20 @@ class WorkerCreate(WorkerBase):
 class WorkerRead(WorkerBase):
     id: int
     farm_id: int
-    created_by_id: Optional[int] = None
+    created_by_id: Optional[int]
 
     class Config:
         from_attributes = True
 
 
-# ======================
-# ACTIVITY LOG
-# ======================
-
+# =====================================================================
+# ACTIVITY LOGS
+# =====================================================================
 class ActivityLogBase(BaseModel):
     action: str
-    details: Optional[str] = None
-    entity_type: Optional[str] = None
-    entity_id: Optional[int] = None
+    details: Optional[str]
+    entity_type: Optional[str]
+    entity_id: Optional[int]
 
 
 class ActivityLogCreate(ActivityLogBase):
@@ -314,7 +306,7 @@ class ActivityLogCreate(ActivityLogBase):
 class ActivityLogRead(ActivityLogBase):
     id: int
     farm_id: int
-    owner_id: Optional[int]
+    created_by_id: Optional[int]
     timestamp: datetime
 
     class Config:

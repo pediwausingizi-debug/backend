@@ -12,3 +12,4 @@ firebase-admin
 cloudinary
 redis[async]
 passlib[bcrypt]
+alembic
