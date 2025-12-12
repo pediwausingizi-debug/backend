@@ -4,30 +4,40 @@ from datetime import datetime
 
 
 # =====================================================================
+# BASE CLASS TO PREVENT 422 ERRORS
+# =====================================================================
+class SafeModel(BaseModel):
+    class Config:
+        extra = "ignore"                 # Accept unknown fields
+        arbitrary_types_allowed = True
+        from_attributes = True           # ORM support
+
+
+# =====================================================================
 # INVITE
 # =====================================================================
-class InviteRequest(BaseModel):
+class InviteRequest(SafeModel):
     email: EmailStr
-    name: str
-    role: str  # Manager | Worker
+    name: Optional[str] = None
+    role: Optional[str] = None
 
 
 # =====================================================================
 # USER
 # =====================================================================
-class UserFirebaseCreate(BaseModel):
-    firebase_uid: str
+class UserFirebaseCreate(SafeModel):
+    firebase_uid: Optional[str] = None
     email: EmailStr
-    name: str
+    name: Optional[str] = None
     role: Optional[str] = "Worker"
 
 
-class UserRead(BaseModel):
+class UserRead(SafeModel):
     id: int
     firebase_uid: Optional[str]
     email: EmailStr
-    name: str
-    role: str
+    name: Optional[str]
+    role: Optional[str]
     created_at: datetime
     phone: Optional[str]
 
@@ -36,11 +46,8 @@ class UserRead(BaseModel):
     farm_location: Optional[str]
     farm_size: Optional[str]
 
-    class Config:
-        from_attributes = True
 
-
-class UserUpdate(BaseModel):
+class UserUpdate(SafeModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     farm_name: Optional[str] = None
@@ -48,266 +55,196 @@ class UserUpdate(BaseModel):
     farm_size: Optional[str] = None
 
 
-class UserCreateByAdmin(BaseModel):
+class UserCreateByAdmin(SafeModel):
     email: EmailStr
-    name: str
-    role: str
+    name: Optional[str] = None
+    role: Optional[str] = None
 
 
 # =====================================================================
 # MEDIA
 # =====================================================================
-class MediaRead(BaseModel):
+class MediaRead(SafeModel):
     id: int
     url: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
 
-
-class ImageSaveRequest(BaseModel):
+class ImageSaveRequest(SafeModel):
     url: str
 
 
 # =====================================================================
 # CROP
 # =====================================================================
-class CropBase(BaseModel):
-    name: str
+class CropCreate(SafeModel):
+    name: Optional[str] = None
     variety: Optional[str] = None
-    area_hectares: float = 0.0
+    area_hectares: Optional[float] = 0.0
     planting_date: Optional[datetime] = None
     expected_harvest: Optional[datetime] = None
     status: Optional[str] = None
     location: Optional[str] = None
-    latitude: Optional[float]
-    longitude: Optional[float]
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
-class CropCreate(CropBase):
-    pass
-
-
-class CropRead(CropBase):
+class CropRead(CropCreate):
     id: int
     farm_id: int
     created_by_id: Optional[int]
     image_url: Optional[str]
     media: List[MediaRead] = []
-
-    class Config:
-        from_attributes = True
 
 
 # =====================================================================
 # CROP GROWTH
 # =====================================================================
-class CropGrowthBase(BaseModel):
-    height_cm: Optional[float]
-    notes: Optional[str]
+class CropGrowthCreate(SafeModel):
+    height_cm: Optional[float] = None
+    notes: Optional[str] = None
 
 
-class CropGrowthCreate(CropGrowthBase):
-    pass
-
-
-class CropGrowthRead(CropGrowthBase):
+class CropGrowthRead(CropGrowthCreate):
     id: int
     crop_id: int
     date: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # =====================================================================
 # LIVESTOCK
 # =====================================================================
-class LivestockBase(BaseModel):
-    type: str
-    category: Optional[str]
-    breed: Optional[str]
-    quantity: int = 0
-    age_months: Optional[int]
-    health_status: Optional[str]
-    location: Optional[str]
+class LivestockCreate(SafeModel):
+    type: Optional[str] = None
+    category: Optional[str] = None
+    breed: Optional[str] = None
+    quantity: Optional[int] = 0
+    age_months: Optional[int] = None
+    health_status: Optional[str] = None
+    location: Optional[str] = None
 
 
-class LivestockCreate(LivestockBase):
-    pass
-
-
-class LivestockRead(LivestockBase):
+class LivestockRead(LivestockCreate):
     id: int
     created_at: datetime
     farm_id: int
     created_by_id: Optional[int]
-    added_by: Optional[int] = None        # ⭐ NEW: matches updated model
+    added_by: Optional[int] = None
     image_url: Optional[str]
     media: List[MediaRead] = []
-
-    class Config:
-        from_attributes = True
 
 
 # =====================================================================
 # LIVESTOCK PRODUCTION
 # =====================================================================
-class LivestockProductionBase(BaseModel):
-    quantity: float
-    unit: str
-    notes: Optional[str]
+class LivestockProductionCreate(SafeModel):
+    quantity: Optional[float] = 0.0
+    unit: Optional[str] = None
+    notes: Optional[str] = None
 
 
-class LivestockProductionCreate(LivestockProductionBase):
-    pass
-
-
-class LivestockProductionRead(LivestockProductionBase):
+class LivestockProductionRead(LivestockProductionCreate):
     id: int
     livestock_id: int
     date: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # =====================================================================
 # INVENTORY
 # =====================================================================
-class InventoryBase(BaseModel):
-    name: str
-    category: Optional[str]
-    quantity: float = 0.0
-    unit: Optional[str]
-    reorder_level: Optional[float]
-    supplier: Optional[str]
+class InventoryCreate(SafeModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    quantity: Optional[float] = 0.0
+    unit: Optional[str] = None
+    reorder_level: Optional[float] = None
+    supplier: Optional[str] = None
 
 
-class InventoryCreate(InventoryBase):
-    pass
-
-
-class InventoryRead(InventoryBase):
+class InventoryRead(InventoryCreate):
     id: int
     farm_id: int
     created_by_id: Optional[int]
-    added_by: Optional[int] = None         # ⭐ NEW: matches updated model
-
-    class Config:
-        from_attributes = True
+    added_by: Optional[int] = None
 
 
 # =====================================================================
 # TRANSACTIONS
 # =====================================================================
-class TransactionBase(BaseModel):
-    type: str
-    category: Optional[str]
-    amount: float
-    description: Optional[str]
-    date: Optional[datetime]
-    payment_method: Optional[str]
+class TransactionCreate(SafeModel):
+    type: Optional[str] = None
+    category: Optional[str] = None
+    amount: Optional[float] = 0.0
+    description: Optional[str] = None
+    date: Optional[datetime] = None
+    payment_method: Optional[str] = None
 
 
-class TransactionCreate(TransactionBase):
-    pass
-
-
-class TransactionRead(TransactionBase):
+class TransactionRead(TransactionCreate):
     id: int
     farm_id: int
     created_by_id: Optional[int]
-
-    owner_id: Optional[int] = None         # ⭐ NEW: matches updated model
-
-    class Config:
-        from_attributes = True
+    owner_id: Optional[int] = None
 
 
 # =====================================================================
-# EXPENSE LINK
+# EXPENSE LINKS
 # =====================================================================
-class ExpenseLinkRead(BaseModel):
+class ExpenseLinkRead(SafeModel):
     id: int
     transaction_id: int
     crop_id: Optional[int]
     livestock_id: Optional[int]
 
-    class Config:
-        from_attributes = True
-
 
 # =====================================================================
 # NOTIFICATIONS
 # =====================================================================
-class NotificationBase(BaseModel):
-    title: str
-    message: Optional[str]
-    type: Optional[str]
+class NotificationCreate(SafeModel):
+    title: Optional[str] = None
+    message: Optional[str] = None
+    type: Optional[str] = None
     read: Optional[bool] = False
 
 
-class NotificationCreate(NotificationBase):
-    pass
-
-
-class NotificationRead(NotificationBase):
+class NotificationRead(NotificationCreate):
     id: int
     created_at: datetime
     farm_id: int
     created_by_id: Optional[int]
 
-    class Config:
-        from_attributes = True
-
 
 # =====================================================================
 # WORKERS
 # =====================================================================
-class WorkerBase(BaseModel):
-    name: str
-    role: Optional[str]
-    phone: Optional[str]
-    email: Optional[EmailStr]
-    salary: Optional[float]
-    status: Optional[str]
-    id_number: Optional[str]
+class WorkerCreate(SafeModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+    salary: Optional[float] = None
+    status: Optional[str] = None
+    id_number: Optional[str] = None
 
 
-class WorkerCreate(WorkerBase):
-    pass
-
-
-class WorkerRead(WorkerBase):
+class WorkerRead(WorkerCreate):
     id: int
     farm_id: int
     created_by_id: Optional[int]
 
-    class Config:
-        from_attributes = True
-
 
 # =====================================================================
-# ACTIVITY LOGS
+# ACTIVITY LOG
 # =====================================================================
-class ActivityLogBase(BaseModel):
-    action: str
-    details: Optional[str]
-    entity_type: Optional[str]
-    entity_id: Optional[int]
+class ActivityLogCreate(SafeModel):
+    action: Optional[str] = None
+    details: Optional[str] = None
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
 
 
-class ActivityLogCreate(ActivityLogBase):
-    pass
-
-
-class ActivityLogRead(ActivityLogBase):
+class ActivityLogRead(ActivityLogCreate):
     id: int
     farm_id: int
     created_by_id: Optional[int]
     timestamp: datetime
-
-    class Config:
-        from_attributes = True
