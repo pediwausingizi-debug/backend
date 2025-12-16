@@ -18,12 +18,12 @@ async def cache_set(key: str, value, expire_seconds: int = 300):
     """
     Serializes any Python object (including datetime) and stores in Redis.
     """
-    serialized = json.dumps(value, default=str)   # ⭐ FIX: handles datetime
+    serialized = json.dumps(value, default=str) 
 
     await redis_client.set(
         key,
         serialized,
-        ex=expire_seconds   # auto-expire
+        ex=expire_seconds
     )
 
 

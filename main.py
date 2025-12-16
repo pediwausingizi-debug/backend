@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from scheduler import start_scheduler
 # Initialize Firebase BEFORE routers load
 import firebase_init
+
+start_scheduler()
 
 # Import routers
 from routers import (

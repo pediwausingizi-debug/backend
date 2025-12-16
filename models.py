@@ -93,10 +93,11 @@ class User(Base):
         back_populates="user",
         foreign_keys="ActivityLog.created_by_id"
     )
-
-
+    email_notifications = Column(Boolean, default=False)
+    weekly_reports = Column(Boolean, default=False)
+    
 # =====================================================================
-# CROP GROWTH (MUST BE ABOVE CROP)
+# CROP GROWTH
 # =====================================================================
 class CropGrowth(Base):
     __tablename__ = "crop_growth"
@@ -107,7 +108,7 @@ class CropGrowth(Base):
     height_cm = Column(Float)
     notes = Column(Text)
 
-    crop = relationship("Crop", back_populates="growth_records")
+    ##crop = relationship("Crop", back_populates="growth_records")
 
 
 # =====================================================================

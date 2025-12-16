@@ -46,6 +46,11 @@ class UserRead(SafeModel):
     farm_location: Optional[str]
     farm_size: Optional[str]
 
+    email_notifications: bool
+    weekly_reports: bool
+
+    class Config:
+        from_attributes = True
 
 class UserUpdate(SafeModel):
     name: Optional[str] = None
@@ -54,7 +59,8 @@ class UserUpdate(SafeModel):
     farm_location: Optional[str] = None
     farm_size: Optional[str] = None
 
-
+    email_notifications: Optional[bool] = None
+    weekly_reports: Optional[bool] = None
 class UserCreateByAdmin(SafeModel):
     email: EmailStr
     name: Optional[str] = None

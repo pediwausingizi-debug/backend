@@ -13,3 +13,4 @@ cloudinary
 redis[async]
 passlib[bcrypt]
 alembic
+reportlab
