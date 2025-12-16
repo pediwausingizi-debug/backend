@@ -14,3 +14,4 @@ redis[async]
 passlib[bcrypt]
 alembic
 reportlab
+apscheduler
