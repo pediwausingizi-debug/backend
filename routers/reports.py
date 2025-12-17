@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-
+from utils.email_utils import send_email
+from utils.notification_utils import create_notification
 from utils.cache import cache_get, cache_set
 from database import get_db
 from utils.auth_utils import get_current_user
 import models
 
-# ✅ FIX — Add prefix="" so the main include_router prefix works
 router = APIRouter(
     prefix="",
     tags=["reports"]
@@ -199,3 +199,50 @@ async def get_inventory_report(
 
     await cache_set(cache_key, payload, 300)
     return payload
+def send_weekly_report(db, farm, user, pdf_path=None):
+    title = "Weekly Farm Report"
+    message = "Your weekly farm performance report has been generated."
+
+    # 1️⃣ Save notification (ALWAYS)
+    create_notification(
+        db=db,
+        farm_id=farm.id,
+        title=title,
+        message=message,
+        type="weekly_report",
+        created_by_id=None,  # system-generated
+    )
+
+    # 2️⃣ Send email only if enabled
+    if user.email_notifications and user.weekly_reports:
+        send_email(
+            to=user.email,
+            subject=title,
+            body=(
+                f"Hello {user.name},\n\n"
+                "Your weekly farm report is ready.\n"
+                "Please find the summary attached.\n\n"
+                "— FarmXpat"
+            ),
+            # attachment logic later
+        )
+        
+def send_monthly_report(db, farm, user):
+    title = "Monthly Farm Report"
+    message = "Your monthly farm summary report is now available."
+
+    create_notification(
+        db=db,
+        farm_id=farm.id,
+        title=title,
+        message=message,
+        type="monthly_report",
+        created_by_id=None,
+    )
+
+    if user.email_notifications:
+        send_email(
+            to=user.email,
+            subject=title,
+            body="Your monthly farm report is ready."
+        )

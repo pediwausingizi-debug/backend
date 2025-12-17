@@ -92,7 +92,7 @@ async def create_transaction(
     tx = models.Transaction(
         **tx_data,
         farm_id=farm_id,
-        owner_id=db_user.id
+        created_by_id=db_user.id
     )
 
     db.add(tx)

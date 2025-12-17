@@ -15,10 +15,8 @@ ACCESS_TOKEN_EXPIRE_DAYS = 7
 ISSUER = "farmxpat_backend"
 AUDIENCE = "farmxpat_users"
 
-
-# -------------------------------------------------
 # Create Backend JWT (INCLUDES FARM ID)
-# -------------------------------------------------
+
 def create_backend_jwt(user: User):
     now = datetime.utcnow()
 
@@ -26,7 +24,7 @@ def create_backend_jwt(user: User):
         "sub": str(user.id),
         "email": user.email,
         "role": user.role,
-        "farm_id": user.farm_id,   # 🟩 REQUIRED FOR MULTI-TENANT FARM SCOPING
+        "farm_id": user.farm_id,   # REQUIRED FOR MULTI-TENANT FARM SCOPING
 
         "iss": ISSUER,
         "aud": AUDIENCE,
@@ -37,10 +35,8 @@ def create_backend_jwt(user: User):
 
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-
-# -------------------------------------------------
 # Decode JWT
-# -------------------------------------------------
+
 def verify_backend_jwt(token: str):
     try:
         payload = jwt.decode(
@@ -55,16 +51,14 @@ def verify_backend_jwt(token: str):
             "user_id": int(payload["sub"]),
             "email": payload["email"],
             "role": payload.get("role", "Worker"),
-            "farm_id": payload.get("farm_id"),   # 🟩 MUST RETURN FARM ID
+            "farm_id": payload.get("farm_id"),   # MUST RETURN FARM ID
         }
 
     except JWTError:
         return None
 
-
-# -------------------------------------------------
 # Protect Routes + Redis Cache
-# -------------------------------------------------
+
 async def get_current_user(
     db: Session = Depends(get_db),
     authorization: str = Header(None),
@@ -85,18 +79,16 @@ async def get_current_user(
     uid = jwt_data["user_id"]
     farm_id = jwt_data.get("farm_id")
 
-    # ---------------------------
     # Redis cache: user:{uid}
-    # ---------------------------
+    
     cache_key = f"user:{uid}"
 
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
-    # ---------------------------
     # Load DB user
-    # ---------------------------
+
     user = db.query(User).filter(User.id == uid).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
@@ -105,7 +97,7 @@ async def get_current_user(
         "user_id": user.id,
         "email": user.email,
         "role": user.role,
-        "farm_id": user.farm_id,   # 🟩 ENSURE FARM ID ALWAYS PRESENT
+        "farm_id": user.farm_id,   # ENSURE FARM ID ALWAYS PRESENT
     }
 
     await cache_set(cache_key, user_payload, expire_seconds=300)
@@ -113,9 +105,8 @@ async def get_current_user(
     return user_payload
 
 
-# -------------------------------------------------
 # ROLE-BASED ACCESS
-# -------------------------------------------------
+
 def require_admin(user=Depends(get_current_user)):
     if user["role"].lower() != "admin":
         raise HTTPException(status_code=403, detail="Admins only")

@@ -79,7 +79,7 @@ async def create_inventory_item(
     item = models.InventoryItem(
         **payload.dict(),
         farm_id=farm_id,
-        added_by=db_user.id
+        created_by_id=db_user.id
     )
 
     db.add(item)

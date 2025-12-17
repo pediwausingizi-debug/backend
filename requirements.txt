@@ -11,7 +11,8 @@ email-validator
 firebase-admin
 cloudinary
 redis[async]
-passlib[bcrypt]
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 alembic
 reportlab
 apscheduler
