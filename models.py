@@ -43,6 +43,7 @@ class User(Base):
     role = Column(String(50), default="Worker")
     phone = Column(String(50))
     created_at = Column(DateTime, default=datetime.utcnow)
+    password_hash = Column(String(255), nullable=True)
 
     farm_name = Column(String(255))
     farm_location = Column(String(255))
