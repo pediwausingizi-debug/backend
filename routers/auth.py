@@ -8,6 +8,7 @@ from models import User, Farm, Worker, Notification
 from schemas import UserRead, UserUpdate
 from utils.auth_utils import create_backend_jwt, get_current_user
 from utils.cache import cache_get, cache_set, cache_delete
+from utils.notification_utils import save_notification
 
 router = APIRouter(tags=["auth"])
 
@@ -192,8 +193,6 @@ class InviteRequest(BaseModel):
     email: EmailStr
     name: str
     role: str  # Manager | Worker
-
-
 @router.post("/admin/invite")
 async def invite_user(
     payload: InviteRequest,
@@ -234,22 +233,40 @@ async def invite_user(
     db.add(worker)
     db.commit()
 
+    # ---------------- EMAIL ----------------
     try:
         send_email(
             to=payload.email,
             subject="You’ve been invited to FarmXpat",
-            html_body=(
-                f"Hello {payload.name},\n\n"
-                f"You have been invited to join FarmXpat as a {payload.role}.\n\n"
-                f"Your login details:\n"
-                f"Email: {payload.email}\n"
-                f"Temporary Password: {temp_password}\n\n"
-                f"Please log in and update your password.\n\n"
-                "— FarmXpat Team"
-            ),
+            html_body=f"""
+            <h2>Hello {payload.name},</h2>
+
+            <p>You have been invited to join <strong>FarmXpat</strong> as a
+            <strong>{payload.role}</strong>.</p>
+
+            <p><strong>Login details:</strong></p>
+            <ul>
+                <li>Email: {payload.email}</li>
+                <li>Temporary Password: {temp_password}</li>
+            </ul>
+
+            <p>Please log in and update your password.</p>
+
+            <br/>
+            <p>— FarmXpat Team</p>
+            """
         )
     except Exception as e:
         print("EMAIL SEND ERROR:", e)
+
+    # ---------------- NOTIFICATION ----------------
+    save_notification(
+        db=db,
+        farm_id=auth_user["farm_id"],
+        title="User Invitation Sent",
+        message=f"Invitation email sent to {payload.email}",
+        notif_type="invite",
+    )
 
     return {
         "message": "User invited successfully",

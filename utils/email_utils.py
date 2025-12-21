@@ -1,37 +1,32 @@
 import os
-import smtplib
-from email.message import EmailMessage
+import resend
+from typing import Dict, Optional
 
-SMTP_HOST = os.getenv("SMTP_HOST")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
-SMTP_USERNAME = os.getenv("SMTP_USERNAME")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
-SMTP_FROM = os.getenv("SMTP_FROM")
+resend.api_key = os.getenv("RESEND_API_KEY")
+EMAIL_FROM = os.getenv("EMAIL_FROM", "FarmXpat <noreply@farmxpat.com>")
 
 
 def send_email(
     to: str,
     subject: str,
     html_body: str,
-    attachments: dict | None = None,
+    attachments: Optional[Dict[str, bytes]] = None,
 ):
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = SMTP_FROM
-    msg["To"] = to
+    payload = {
+        "from": EMAIL_FROM,
+        "to": [to],
+        "subject": subject,
+        "html": html_body,
+    }
 
-    msg.add_alternative(html_body, subtype="html")
-
+    # Attach PDFs if provided
     if attachments:
-        for filename, file_bytes in attachments.items():
-            msg.add_attachment(
-                file_bytes,
-                maintype="application",
-                subtype="pdf",
-                filename=filename,
-            )
+        payload["attachments"] = [
+            {
+                "filename": filename,
+                "content": file_bytes,
+            }
+            for filename, file_bytes in attachments.items()
+        ]
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as smtp:
-        smtp.starttls()
-        smtp.login(SMTP_USERNAME, SMTP_PASSWORD)
-        smtp.send_message(msg)
+    resend.Emails.send(payload)
