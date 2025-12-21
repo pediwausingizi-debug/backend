@@ -9,14 +9,19 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 SMTP_FROM = os.getenv("SMTP_FROM")
 
 
-def send_email(to: str, subject: str, html_body: str, attachments=None):
+def send_email(
+    to: str,
+    subject: str,
+    html_body: str,
+    attachments: dict | None = None,
+):
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = SMTP_FROM
     msg["To"] = to
+
     msg.add_alternative(html_body, subtype="html")
 
-    # Attach PDFs
     if attachments:
         for filename, file_bytes in attachments.items():
             msg.add_attachment(
