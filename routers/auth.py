@@ -238,7 +238,7 @@ async def invite_user(
         send_email(
             to=payload.email,
             subject="You’ve been invited to FarmXpat",
-            body=(
+            html_body=(
                 f"Hello {payload.name},\n\n"
                 f"You have been invited to join FarmXpat as a {payload.role}.\n\n"
                 f"Your login details:\n"
