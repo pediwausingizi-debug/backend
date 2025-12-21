@@ -8,7 +8,7 @@ from models import User, Farm, Worker, Notification
 from schemas import UserRead, UserUpdate
 from utils.auth_utils import create_backend_jwt, get_current_user
 from utils.cache import cache_get, cache_set, cache_delete
-from utils.notification_utils import save_notification
+from utils.notification_utils import create_notification
 
 router = APIRouter(tags=["auth"])
 
@@ -260,7 +260,7 @@ async def invite_user(
         print("EMAIL SEND ERROR:", e)
 
     # ---------------- NOTIFICATION ----------------
-    save_notification(
+    create_notification(
         db=db,
         farm_id=auth_user["farm_id"],
         title="User Invitation Sent",

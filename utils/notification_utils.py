@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from models import Notification
 
 
-def save_notification(
+def create_notification(
     db: Session,
     farm_id: int,
     title: str,
