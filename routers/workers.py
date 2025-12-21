@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 from typing import List
-
+from utils.notification_utils import create_notification
 from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
@@ -130,18 +130,43 @@ async def update_worker(
 async def delete_worker(
     worker_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    auth_user=Depends(get_current_user),
 ):
-    db_user = get_db_user(user, db)
+    if auth_user["role"] != "Admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Admins only"
+        )
 
-    worker = db.query(models.Worker).filter(
-        models.Worker.id == worker_id,
-        models.Worker.farm_id == db_user.farm_id
-    ).first()
+    worker = (
+        db.query(models.Worker)
+        .filter(
+            models.Worker.id == worker_id,
+            models.Worker.farm_id == auth_user["farm_id"]
+        )
+        .first()
+    )
 
     if not worker:
         raise HTTPException(404, "Worker not found")
 
+    # 🔥 Find matching user by email
+    user = (
+        db.query(models.User)
+        .filter(
+            models.User.email == worker.email,
+            models.User.farm_id == auth_user["farm_id"]
+        )
+        .first()
+    )
+
+    # Delete worker
     db.delete(worker)
+
+    # Delete user account if exists
+    if user:
+        db.delete(user)
+
     db.commit()
+
     return None
