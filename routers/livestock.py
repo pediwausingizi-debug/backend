@@ -10,7 +10,7 @@ from database import get_db
 from utils.auth_utils import get_current_user
 import models, schemas
 
-# ✅ FIX: Ensure router aligns with /api/livestock prefix in main.py
+
 router = APIRouter(
     prefix="",
     tags=["livestock"]
@@ -80,7 +80,6 @@ async def create_livestock(
     animal = models.Livestock(
         **payload.dict(),
         farm_id=farm_id,
-        added_by=db_user.id,
         created_at=datetime.utcnow(),
     )
 
