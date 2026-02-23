@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User
 from utils.cache import cache_get, cache_set
-from utils.auth_utils import get_current_user
 
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
 ALGORITHM = "HS256"
@@ -15,6 +14,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7
 ISSUER = "farmxpat_backend"
 AUDIENCE = "farmxpat_users"
+
 
 # Create Backend JWT (INCLUDES FARM ID)
 
