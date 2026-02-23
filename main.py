@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from scheduler import start_scheduler
-# Initialize Firebase BEFORE routers load
+
 import firebase_init
 
 start_scheduler()
@@ -17,6 +17,7 @@ from routers import (
     notifications,
     reports,
     dashboard,
+    assistant,
 )
 
 # IMPORTANT: Disable slash redirects
@@ -66,7 +67,7 @@ app.include_router(finance.router, prefix="/api/finance", tags=["finance"])
 app.include_router(workers.router, prefix="/api/workers", tags=["workers"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
-
+app.include_router(assistant.router, prefix="/api/assistant", tags=["assistant"])   
 # -----------------------------------------------------------
 # ROOT + HEALTH ENDPOINTS
 # -----------------------------------------------------------

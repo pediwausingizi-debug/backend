@@ -1,3 +1,5 @@
+# routers/reports.py
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from utils.email_utils import send_email
@@ -6,6 +8,10 @@ from utils.cache import cache_get, cache_set
 from database import get_db
 from utils.auth_utils import get_current_user
 import models
+
+from datetime import datetime, time
+from typing import Optional
+
 
 router = APIRouter(
     prefix="",
@@ -16,7 +22,7 @@ router = APIRouter(
 # -------------------------------------------------------------
 # Helper → fetch full SQL user + farm
 # -------------------------------------------------------------
-def get_db_user(user_data, db):
+def get_db_user(user_data, db: Session):
     db_user = db.query(models.User).filter(
         models.User.id == user_data["user_id"]
     ).first()
@@ -31,24 +37,61 @@ def get_db_user(user_data, db):
 
 
 # -------------------------------------------------------------
-# LIVESTOCK REPORT  →  /api/reports/livestock
+# Helper → parse YYYY-MM-DD date range
+# end is inclusive (end-of-day)
+# -------------------------------------------------------------
+def parse_date_range(start: Optional[str], end: Optional[str]):
+    if not start and not end:
+        return None, None
+
+    if not start or not end:
+        raise HTTPException(status_code=400, detail="Provide both start and end (YYYY-MM-DD)")
+
+    try:
+        start_d = datetime.strptime(start, "%Y-%m-%d").date()
+        end_d = datetime.strptime(end, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    if end_d < start_d:
+        raise HTTPException(status_code=400, detail="end must be >= start")
+
+    start_dt = datetime.combine(start_d, time.min)
+    end_dt = datetime.combine(end_d, time.max)
+    return start_dt, end_dt
+
+
+# -------------------------------------------------------------
+# LIVESTOCK REPORT  →  /api/reports/livestock?start=YYYY-MM-DD&end=YYYY-MM-DD
+# Filters by Livestock.created_at if start/end provided
 # -------------------------------------------------------------
 @router.get("/livestock")
 async def get_livestock_report(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_db_user(user, db)
     farm_id = db_user.farm_id
 
-    cache_key = f"report:livestock:farm:{farm_id}"
+    start_dt, end_dt = parse_date_range(start, end)
+
+    cache_key = f"report:livestock:farm:{farm_id}:{start or 'all'}:{end or 'all'}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
-    items = db.query(models.Livestock).filter(
-        models.Livestock.farm_id == farm_id
-    ).all()
+    q = db.query(models.Livestock).filter(models.Livestock.farm_id == farm_id)
+
+    # Optional date filtering (created_at exists in your Livestock model)
+    if start_dt and end_dt:
+        q = q.filter(
+            models.Livestock.created_at >= start_dt,
+            models.Livestock.created_at <= end_dt,
+        )
+
+    items = q.all()
 
     total_count = sum((i.quantity or 0) for i in items)
 
@@ -57,9 +100,11 @@ async def get_livestock_report(
 
     for livestock in items:
         qty = livestock.quantity or 0
-        by_type[livestock.type] = by_type.get(livestock.type, 0) + qty
 
-        status = (livestock.health_status or "").lower()
+        t = livestock.type or "Unknown"
+        by_type[t] = by_type.get(t, 0) + qty
+
+        status = (livestock.health_status or "").lower().strip()
         if status == "healthy":
             health_summary["healthy"] += qty
         elif status == "sick":
@@ -68,6 +113,7 @@ async def get_livestock_report(
             health_summary["treatment"] += qty
 
     payload = {
+        "range": {"start": start, "end": end},
         "total_count": total_count,
         "by_type": by_type,
         "health_summary": health_summary,
@@ -78,24 +124,37 @@ async def get_livestock_report(
 
 
 # -------------------------------------------------------------
-# CROPS REPORT  →  /api/reports/crops
+# CROPS REPORT  →  /api/reports/crops?start=YYYY-MM-DD&end=YYYY-MM-DD
+# Filters by planting_date if start/end provided
 # -------------------------------------------------------------
 @router.get("/crops")
 async def get_crops_report(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_db_user(user, db)
     farm_id = db_user.farm_id
 
-    cache_key = f"report:crops:farm:{farm_id}"
+    start_dt, end_dt = parse_date_range(start, end)
+
+    cache_key = f"report:crops:farm:{farm_id}:{start or 'all'}:{end or 'all'}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
-    crops = db.query(models.Crop).filter(
-        models.Crop.farm_id == farm_id
-    ).all()
+    q = db.query(models.Crop).filter(models.Crop.farm_id == farm_id)
+
+    # Optional date filtering by planting_date
+    if start_dt and end_dt:
+        q = q.filter(models.Crop.planting_date != None)
+        q = q.filter(
+            models.Crop.planting_date >= start_dt,
+            models.Crop.planting_date <= end_dt,
+        )
+
+    crops = q.all()
 
     total_area = sum((c.area_hectares or 0) for c in crops)
 
@@ -104,15 +163,18 @@ async def get_crops_report(
 
     for crop in crops:
         area = crop.area_hectares or 0
-        by_crop[crop.name] = by_crop.get(crop.name, 0) + area
 
-        status = (crop.status or "").lower()
+        name = crop.name or "Unknown"
+        by_crop[name] = by_crop.get(name, 0) + area
+
+        status = (crop.status or "").lower().strip()
         if status == "completed":
             harvest_summary["completed"] += 1
         else:
             harvest_summary["pending"] += 1
 
     payload = {
+        "range": {"start": start, "end": end},
         "total_area": total_area,
         "by_crop": by_crop,
         "harvest_summary": harvest_summary,
@@ -123,35 +185,47 @@ async def get_crops_report(
 
 
 # -------------------------------------------------------------
-# FINANCIAL REPORT  →  /api/reports/financial
+# FINANCIAL REPORT  →  /api/reports/financial?start=YYYY-MM-DD&end=YYYY-MM-DD
+# Filters by Transaction.date if start/end provided
 # -------------------------------------------------------------
 @router.get("/financial")
 async def get_financial_report(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_db_user(user, db)
     farm_id = db_user.farm_id
 
-    cache_key = f"report:financial:farm:{farm_id}"
+    start_dt, end_dt = parse_date_range(start, end)
+
+    cache_key = f"report:financial:farm:{farm_id}:{start or 'all'}:{end or 'all'}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
 
-    transactions = db.query(models.Transaction).filter(
-        models.Transaction.farm_id == farm_id
-    ).all()
+    q = db.query(models.Transaction).filter(models.Transaction.farm_id == farm_id)
 
-    total_income = sum(t.amount for t in transactions if t.type == "income")
-    total_expenses = sum(t.amount for t in transactions if t.type == "expense")
+    if start_dt and end_dt:
+        q = q.filter(
+            models.Transaction.date >= start_dt,
+            models.Transaction.date <= end_dt,
+        )
+
+    transactions = q.all()
+
+    total_income = sum(float(t.amount or 0) for t in transactions if (t.type or "").lower() == "income")
+    total_expenses = sum(float(t.amount or 0) for t in transactions if (t.type or "").lower() == "expense")
     net_profit = total_income - total_expenses
 
     by_category = {}
     for t in transactions:
-        cat = t.category or "uncategorized"
-        by_category[cat] = by_category.get(cat, 0) + (t.amount or 0)
+        cat = (t.category or "uncategorized").strip() or "uncategorized"
+        by_category[cat] = by_category.get(cat, 0) + float(t.amount or 0)
 
     payload = {
+        "range": {"start": start, "end": end},
         "total_income": total_income,
         "total_expenses": total_expenses,
         "net_profit": net_profit,
@@ -164,16 +238,20 @@ async def get_financial_report(
 
 # -------------------------------------------------------------
 # INVENTORY REPORT  →  /api/reports/inventory
+# (Date range accepted for API consistency but inventory has no timestamp field in your model)
 # -------------------------------------------------------------
 @router.get("/inventory")
 async def get_inventory_report(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_db_user(user, db)
     farm_id = db_user.farm_id
 
-    cache_key = f"report:inventory:farm:{farm_id}"
+    # Inventory is point-in-time; still separate cache by range to match UI expectations
+    cache_key = f"report:inventory:farm:{farm_id}:{start or 'all'}:{end or 'all'}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
@@ -188,9 +266,12 @@ async def get_inventory_report(
         if i.reorder_level is not None and (i.quantity or 0) <= (i.reorder_level or 0)
     ])
     out_of_stock = len([i for i in items if (i.quantity or 0) == 0])
+
+    # NOTE: your previous "total_value" was summing quantities; keeping same behavior to avoid breaking UI
     total_value = sum((i.quantity or 0) for i in items)
 
     payload = {
+        "range": {"start": start, "end": end},
         "total_items": total_items,
         "low_stock_items": low_stock_items,
         "out_of_stock": out_of_stock,
@@ -199,11 +280,16 @@ async def get_inventory_report(
 
     await cache_set(cache_key, payload, 300)
     return payload
+
+
+# -------------------------------------------------------------
+# Report Notifications + Email helpers
+# -------------------------------------------------------------
 def send_weekly_report(db, farm, user, pdf_path=None):
     title = "Weekly Farm Report"
     message = "Your weekly farm performance report has been generated."
 
-    # 1️⃣ Save notification (ALWAYS)
+    # Save notification (ALWAYS)
     create_notification(
         db=db,
         farm_id=farm.id,
@@ -213,7 +299,7 @@ def send_weekly_report(db, farm, user, pdf_path=None):
         created_by_id=None,  # system-generated
     )
 
-    # 2️⃣ Send email only if enabled
+    # Send email only if enabled
     if user.email_notifications and user.weekly_reports:
         send_email(
             to=user.email,
@@ -226,7 +312,8 @@ def send_weekly_report(db, farm, user, pdf_path=None):
             ),
             # attachment logic later
         )
-        
+
+
 def send_monthly_report(db, farm, user):
     title = "Monthly Farm Report"
     message = "Your monthly farm summary report is now available."

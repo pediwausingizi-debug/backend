@@ -150,7 +150,7 @@ async def delete_worker(
     if not worker:
         raise HTTPException(404, "Worker not found")
 
-    # 🔥 Find matching user by email
+    #  Find matching user by email
     user = (
         db.query(models.User)
         .filter(

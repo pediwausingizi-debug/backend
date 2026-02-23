@@ -3,19 +3,13 @@ from sqlalchemy.orm import Session
 
 from utils.auth_utils import get_current_user
 from database import get_db
+from utils.cache import cache_delete  # ✅ ADD
 import models, schemas
 
-# ✅ Must include empty prefix so main include_router prefix works correctly
-router = APIRouter(
-    prefix="",
-    tags=["Upload"]
-)
+router = APIRouter(prefix="", tags=["Upload"])
 
 
-# --------------------------------------------------------
-# Helper → Check user + farm
-# --------------------------------------------------------
-def get_db_user(user_data, db):
+def get_db_user(user_data, db: Session) -> models.User:
     db_user = db.query(models.User).filter(
         models.User.id == user_data["user_id"]
     ).first()
@@ -31,10 +25,10 @@ def get_db_user(user_data, db):
 
 # --------------------------------------------------------
 # POST /upload/animal/{animal_id}
-# Save image for livestock
+# Save image for livestock (url + optional public_id)
 # --------------------------------------------------------
 @router.post("/animal/{animal_id}")
-def save_animal_image(
+async def save_animal_image(
     animal_id: int,
     payload: schemas.ImageSaveRequest,
     db: Session = Depends(get_db),
@@ -56,22 +50,31 @@ def save_animal_image(
         raise HTTPException(status_code=404, detail="Animal not found")
 
     animal.image_url = payload.url
+
+    # ✅ Save public_id if provided (only if model column exists)
+    if payload.public_id:
+        animal.image_public_id = payload.public_id
+
     db.commit()
     db.refresh(animal)
 
-    # Always return JSON-safe response
+    # ✅ Invalidate caches so frontend sees updated image immediately
+    await cache_delete(f"livestock:list:farm:{farm_id}")
+    await cache_delete(f"livestock:item:farm:{farm_id}:{animal_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
+
     return {
         "message": "Image saved",
-        "animal": schemas.LivestockRead.model_validate(animal).model_dump()
+        "animal": schemas.LivestockRead.model_validate(animal).model_dump(mode="json"),
     }
 
 
 # --------------------------------------------------------
 # POST /upload/crop/{crop_id}
-# Save image for crop
+# Save image for crop (url + optional public_id)
 # --------------------------------------------------------
 @router.post("/crop/{crop_id}")
-def save_crop_image(
+async def save_crop_image(
     crop_id: int,
     payload: schemas.ImageSaveRequest,
     db: Session = Depends(get_db),
@@ -93,10 +96,19 @@ def save_crop_image(
         raise HTTPException(status_code=404, detail="Crop not found")
 
     crop.image_url = payload.url
+
+    if payload.public_id:
+        crop.image_public_id = payload.public_id
+
     db.commit()
     db.refresh(crop)
 
+    # ✅ Invalidate caches
+    await cache_delete(f"crops:list:farm:{farm_id}")
+    await cache_delete(f"crops:item:farm:{farm_id}:{crop_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
+
     return {
         "message": "Image saved",
-        "crop": schemas.CropRead.model_validate(crop).model_dump()
+        "crop": schemas.CropRead.model_validate(crop).model_dump(mode="json"),
     }

@@ -63,7 +63,9 @@ class User(Base):
     created_workers = relationship("Worker", back_populates="created_by")
     activity_logs = relationship("ActivityLog", back_populates="user")
 
+    plan = Column(String(20), default="free", nullable=False)
 
+    
 # =========================================================
 # CROP
 # =========================================================
@@ -81,6 +83,8 @@ class Crop(Base):
     latitude = Column(Float)
     longitude = Column(Float)
     image_url = Column(String(500))
+    image_public_id = Column(String(255))
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     farm_id = Column(Integer, ForeignKey("farms.id"), nullable=False)
     farm = relationship("Farm", back_populates="crops")
@@ -128,11 +132,12 @@ class Livestock(Base):
     health_status = Column(String(100))
     location = Column(String(255))
     image_url = Column(String(500))
+    image_public_id = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
 
     farm_id = Column(Integer, ForeignKey("farms.id"), nullable=False)
     farm = relationship("Farm", back_populates="livestock")
-
+    last_checkup = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_by_id = Column(Integer, ForeignKey("users.id"))
     created_by = relationship("User", back_populates="created_livestock")
 
@@ -190,6 +195,7 @@ class ExpenseLink(Base):
     crop_id = Column(Integer, ForeignKey("crops.id"))
     livestock_id = Column(Integer, ForeignKey("livestock.id"))
 
+    transaction = relationship("Transaction")
     crop = relationship("Crop", back_populates="expenses")
     livestock = relationship("Livestock", back_populates="expenses")
 

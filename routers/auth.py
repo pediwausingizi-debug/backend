@@ -127,7 +127,11 @@ async def update_user(
 
     json_safe_user = UserRead.model_validate(db_user).model_dump(mode="json")
 
-    # Update cache
+    # ✅ Invalidate both caches to prevent stale reload after toggles
+    await cache_delete(f"user:me:{db_user.id}")
+    await cache_delete(f"user:{db_user.id}")  # from get_current_user()
+
+    # ✅ Re-cache fresh /me payload
     await cache_set(
         f"user:me:{db_user.id}",
         json_safe_user,

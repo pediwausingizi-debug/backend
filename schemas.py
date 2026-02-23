@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
-from datetime import datetime
+from datetime import date, datetime
 
 
 # =====================================================================
@@ -38,6 +38,7 @@ class UserRead(SafeModel):
     email: EmailStr
     name: Optional[str]
     role: Optional[str]
+    plan: Optional[str]
     created_at: datetime
     phone: Optional[str]
 
@@ -78,7 +79,7 @@ class MediaRead(SafeModel):
 
 class ImageSaveRequest(SafeModel):
     url: str
-
+    public_id: Optional[str] = None
 
 # =====================================================================
 # CROP
@@ -101,7 +102,7 @@ class CropRead(CropCreate):
     created_by_id: Optional[int]
     image_url: Optional[str]
     media: List[MediaRead] = []
-
+    image_public_id: Optional[str]
 
 # =====================================================================
 # CROP GROWTH
@@ -128,7 +129,7 @@ class LivestockCreate(SafeModel):
     age_months: Optional[int] = None
     health_status: Optional[str] = None
     location: Optional[str] = None
-
+    last_checkup: Optional[date] = None
 
 class LivestockRead(LivestockCreate):
     id: int
@@ -138,7 +139,7 @@ class LivestockRead(LivestockCreate):
     added_by: Optional[int] = None
     image_url: Optional[str]
     media: List[MediaRead] = []
-
+    image_public_id: Optional[str]
 
 # =====================================================================
 # LIVESTOCK PRODUCTION

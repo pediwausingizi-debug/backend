@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User
 from utils.cache import cache_get, cache_set
+from utils.auth_utils import get_current_user
 
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
 ALGORITHM = "HS256"
@@ -116,4 +117,17 @@ def require_admin(user=Depends(get_current_user)):
 def require_manager(user=Depends(get_current_user)):
     if user["role"].lower() not in ["admin", "manager"]:
         raise HTTPException(status_code=403, detail="Managers or Admins only")
+    return user
+
+def require_pro(
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db_user = db.query(User).filter(User.id == user["user_id"]).first()
+    if not db_user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    if (db_user.plan or "free").lower() != "pro":
+        raise HTTPException(status_code=403, detail="Pro feature. Please upgrade.")
+
     return user
