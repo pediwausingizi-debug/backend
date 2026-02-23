@@ -11,7 +11,7 @@ from utils.cache import cache_get, cache_set
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
 ALGORITHM = "HS256"
 
-ACCESS_TOKEN_EXPIRE_DAYS = 7
+ACCESS_TOKEN_EXPIRE_DAYS = 8
 ISSUER = "farmxpat_backend"
 AUDIENCE = "farmxpat_users"
 
