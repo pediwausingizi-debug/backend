@@ -2,6 +2,13 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from firebase_admin import auth as firebase_auth
+from firebase_admin.auth import (
+    InvalidIdTokenError,
+    ExpiredIdTokenError,
+    RevokedIdTokenError,
+    CertificateFetchError,
+)
+import traceback
 
 from database import get_db
 from models import User, Farm, Worker, Notification
@@ -17,7 +24,7 @@ router = APIRouter(tags=["auth"])
 # Google Login Payload
 # -------------------------------------------------
 class GoogleLoginRequest(BaseModel):
-    token: str
+    token: str  # Firebase ID token (JWT)
 
 
 # -------------------------------------------------
@@ -36,12 +43,13 @@ class UserCreateByAdmin(BaseModel):
 @router.post("/google-login")
 async def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
     try:
+        # ✅ Verify Firebase ID token
         decoded = firebase_auth.verify_id_token(req.token)
 
         email = decoded.get("email")
-        name = decoded.get("name") or email.split("@")[0]
+        name = decoded.get("name") or (email.split("@")[0] if email else None)
         picture = decoded.get("picture")
-        firebase_uid = decoded.get("user_id")
+        firebase_uid = decoded.get("uid")  # ✅ correct claim key
 
         if not email:
             raise HTTPException(status_code=400, detail="Google token missing email")
@@ -69,10 +77,10 @@ async def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
             db.refresh(user)
 
         else:
-            # CASE B — Existing user login
+            # CASE B — Existing user login (update fields if needed)
             updated = False
 
-            if not user.firebase_uid:
+            if firebase_uid and user.firebase_uid != firebase_uid:
                 user.firebase_uid = firebase_uid
                 updated = True
 
@@ -91,18 +99,33 @@ async def google_login(req: GoogleLoginRequest, db: Session = Depends(get_db)):
         # Create backend JWT
         backend_token = create_backend_jwt(user)
 
-        # Invalidate cache
+        # Invalidate caches (both keys used elsewhere)
         await cache_delete(f"user:me:{user.id}")
+        await cache_delete(f"user:{user.id}")
 
         return {
             "user": UserRead.model_validate(user).model_dump(mode="json"),
             "token": backend_token,
         }
 
-    except Exception as e:
-        print("GOOGLE LOGIN ERROR:", e)
-        raise HTTPException(status_code=401, detail="Invalid Google token")
+    except (InvalidIdTokenError, ExpiredIdTokenError, RevokedIdTokenError) as e:
+        print("FIREBASE TOKEN ERROR:", repr(e))
+        raise HTTPException(status_code=401, detail="Invalid or expired Google token")
 
+    except CertificateFetchError as e:
+        # This usually means your server couldn't fetch Google's public certs (network/DNS/proxy)
+        print("FIREBASE CERT FETCH ERROR:", repr(e))
+        raise HTTPException(status_code=503, detail="Auth service temporarily unavailable")
+
+    except HTTPException:
+        # Let explicit HTTP errors pass through unchanged
+        raise
+
+    except Exception as e:
+        # Anything else is a real server bug (DB, models, etc.)
+        print("GOOGLE LOGIN UNEXPECTED ERROR:", repr(e))
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Google login failed (server error)")
 
 
 # -------------------------------------------------
@@ -139,7 +162,6 @@ async def update_user(
     )
 
     return json_safe_user
-
 
 
 # -------------------------------------------------
@@ -184,8 +206,6 @@ async def me(
     return payload
 
 
-
-
 # -------------------------------------------------
 # ADMIN INVITE WORKER OR MANAGER
 # -------------------------------------------------
@@ -197,6 +217,7 @@ class InviteRequest(BaseModel):
     email: EmailStr
     name: str
     role: str  # Manager | Worker
+
 @router.post("/admin/invite")
 async def invite_user(
     payload: InviteRequest,
@@ -261,7 +282,7 @@ async def invite_user(
             """
         )
     except Exception as e:
-        print("EMAIL SEND ERROR:", e)
+        print("EMAIL SEND ERROR:", repr(e))
 
     # ---------------- NOTIFICATION ----------------
     create_notification(
@@ -277,7 +298,6 @@ async def invite_user(
         "user_id": new_user.id,
         "worker_id": worker.id,
     }
-
 
 
 # -------------------------------------------------
@@ -296,9 +316,7 @@ async def email_login(payload: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
 
     if not user.password_hash:
-        raise HTTPException(
-            status_code=400, detail="This account uses Google login"
-        )
+        raise HTTPException(status_code=400, detail="This account uses Google login")
 
     from utils.password_utils import verify_password
 
@@ -311,7 +329,6 @@ async def email_login(payload: LoginRequest, db: Session = Depends(get_db)):
         "user": UserRead.model_validate(user).model_dump(mode="json"),
         "token": token,
     }
-
 
 
 # -------------------------------------------------
