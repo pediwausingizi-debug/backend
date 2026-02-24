@@ -46,7 +46,8 @@ async def chat_free(payload: ChatRequest):
     # Use a reasonably reliable serverless-friendly model.
     # If you want a different one, swap the model id below.
     model_id = os.getenv("HF_MODEL_ID", "HuggingFaceH4/zephyr-7b-beta")
-    api_url = f"https://api-inference.huggingface.co/models/{model_id}"
+    api_url = f"https://router.huggingface.co/hf-inference/models/{model_id}"
+
 
     headers = {
         "Authorization": f"Bearer {token}",
