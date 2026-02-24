@@ -63,7 +63,6 @@ class User(Base):
     created_workers = relationship("Worker", back_populates="created_by")
     activity_logs = relationship("ActivityLog", back_populates="user")
 
-    plan = Column(String(20), default="free", nullable=False)
 
     
 # =========================================================

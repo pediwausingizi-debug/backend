@@ -38,7 +38,6 @@ class UserRead(SafeModel):
     email: EmailStr
     name: Optional[str]
     role: Optional[str]
-    plan: Optional[str]
     created_at: datetime
     phone: Optional[str]
 
