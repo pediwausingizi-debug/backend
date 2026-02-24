@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/assistant", tags=["assistant"])
+router = APIRouter(tags=["assistant"])
 
 
 class ChatRequest(BaseModel):
