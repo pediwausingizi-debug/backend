@@ -8,6 +8,9 @@ from utils.cache import cache_get, cache_set
 from database import get_db
 from utils.auth_utils import get_current_user
 import models
+import csv
+from io import StringIO
+from fastapi.responses import Response
 
 from datetime import datetime, time
 from typing import Optional
@@ -333,3 +336,147 @@ def send_monthly_report(db, farm, user):
             subject=title,
             body="Your monthly farm report is ready."
         )
+# -------------------------------------------------------------
+# CSV helpers
+# -------------------------------------------------------------
+def _csv_response(filename: str, rows: list[list], headers: list[str] | None = None) -> Response:
+    sio = StringIO()
+    writer = csv.writer(sio)
+
+    if headers:
+        writer.writerow(headers)
+
+    for r in rows:
+        writer.writerow(r)
+
+    csv_text = sio.getvalue()
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# -------------------------------------------------------------
+# LIVESTOCK REPORT CSV  →  /api/reports/livestock.csv
+# -------------------------------------------------------------
+@router.get("/livestock.csv")
+async def get_livestock_report_csv(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    payload = await get_livestock_report(start=start, end=end, db=db, user=user)
+
+    rows = []
+    rows.append(["range_start", payload["range"]["start"] or ""])
+    rows.append(["range_end", payload["range"]["end"] or ""])
+    rows.append([])
+    rows.append(["metric", "value"])
+    rows.append(["total_count", payload["total_count"]])
+    rows.append([])
+
+    # by_type
+    rows.append(["by_type", "quantity"])
+    for k, v in (payload.get("by_type") or {}).items():
+        rows.append([k, v])
+
+    rows.append([])
+
+    # health_summary
+    rows.append(["health_summary", "quantity"])
+    for k, v in (payload.get("health_summary") or {}).items():
+        rows.append([k, v])
+
+    return _csv_response("livestock_report.csv", rows)
+
+
+# -------------------------------------------------------------
+# CROPS REPORT CSV  →  /api/reports/crops.csv
+# -------------------------------------------------------------
+@router.get("/crops.csv")
+async def get_crops_report_csv(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    payload = await get_crops_report(start=start, end=end, db=db, user=user)
+
+    rows = []
+    rows.append(["range_start", payload["range"]["start"] or ""])
+    rows.append(["range_end", payload["range"]["end"] or ""])
+    rows.append([])
+    rows.append(["metric", "value"])
+    rows.append(["total_area", payload["total_area"]])
+    rows.append([])
+
+    # by_crop
+    rows.append(["by_crop", "area_hectares"])
+    for k, v in (payload.get("by_crop") or {}).items():
+        rows.append([k, v])
+
+    rows.append([])
+
+    # harvest_summary
+    rows.append(["harvest_summary", "count"])
+    for k, v in (payload.get("harvest_summary") or {}).items():
+        rows.append([k, v])
+
+    return _csv_response("crops_report.csv", rows)
+
+
+# -------------------------------------------------------------
+# FINANCIAL REPORT CSV  →  /api/reports/financial.csv
+# -------------------------------------------------------------
+@router.get("/financial.csv")
+async def get_financial_report_csv(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    payload = await get_financial_report(start=start, end=end, db=db, user=user)
+
+    rows = []
+    rows.append(["range_start", payload["range"]["start"] or ""])
+    rows.append(["range_end", payload["range"]["end"] or ""])
+    rows.append([])
+    rows.append(["metric", "value"])
+    rows.append(["total_income", payload["total_income"]])
+    rows.append(["total_expenses", payload["total_expenses"]])
+    rows.append(["net_profit", payload["net_profit"]])
+    rows.append([])
+
+    rows.append(["category", "amount"])
+    for k, v in (payload.get("by_category") or {}).items():
+        rows.append([k, v])
+
+    return _csv_response("financial_report.csv", rows)
+
+
+# -------------------------------------------------------------
+# INVENTORY REPORT CSV  →  /api/reports/inventory.csv
+# -------------------------------------------------------------
+@router.get("/inventory.csv")
+async def get_inventory_report_csv(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    payload = await get_inventory_report(start=start, end=end, db=db, user=user)
+
+    rows = [
+        ["range_start", payload["range"]["start"] or ""],
+        ["range_end", payload["range"]["end"] or ""],
+        [],
+        ["metric", "value"],
+        ["total_items", payload["total_items"]],
+        ["low_stock_items", payload["low_stock_items"]],
+        ["out_of_stock", payload["out_of_stock"]],
+        ["total_value", payload["total_value"]],
+    ]
+
+    return _csv_response("inventory_report.csv", rows)
