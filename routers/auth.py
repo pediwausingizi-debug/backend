@@ -337,7 +337,7 @@ async def email_login(payload: LoginRequest, db: Session = Depends(get_db)):
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
-    name: str
+    name: str | None = None
     farm_name: str
 
 
@@ -353,16 +353,17 @@ async def email_register(payload: RegisterRequest, db: Session = Depends(get_db)
     db.commit()
     db.refresh(farm)
 
-    # Create admin
     from utils.password_utils import hash_password
 
+    # Create admin
     user = User(
         email=payload.email,
-        name=payload.name,
+        name=payload.name or payload.email.split("@")[0],
         role="Admin",
         password_hash=hash_password(payload.password),
         farm_id=farm.id,
     )
+
     db.add(user)
     db.commit()
     db.refresh(user)
