@@ -241,7 +241,6 @@ async def get_financial_report(
 
 # -------------------------------------------------------------
 # INVENTORY REPORT  →  /api/reports/inventory
-# (Date range accepted for API consistency but inventory has no timestamp field in your model)
 # -------------------------------------------------------------
 @router.get("/inventory")
 async def get_inventory_report(
@@ -253,8 +252,7 @@ async def get_inventory_report(
     db_user = get_db_user(user, db)
     farm_id = db_user.farm_id
 
-    # Inventory is point-in-time; still separate cache by range to match UI expectations
-    cache_key = f"report:inventory:farm:{farm_id}:{start or 'all'}:{end or 'all'}"
+    cache_key = f"reports:inventory:farm:{farm_id}:{start or 'all'}:{end or 'all'}"
     cached = await cache_get(cache_key)
     if cached:
         return cached
@@ -264,14 +262,29 @@ async def get_inventory_report(
     ).all()
 
     total_items = len(items)
+
     low_stock_items = len([
         i for i in items
-        if i.reorder_level is not None and (i.quantity or 0) <= (i.reorder_level or 0)
+        if i.reorder_level is not None
+        and (i.quantity or 0) <= (i.reorder_level or 0)
     ])
-    out_of_stock = len([i for i in items if (i.quantity or 0) == 0])
 
-    # NOTE: your previous "total_value" was summing quantities; keeping same behavior to avoid breaking UI
-    total_value = sum((i.quantity or 0) for i in items)
+    out_of_stock = len([
+        i for i in items
+        if (i.quantity or 0) == 0
+    ])
+
+    # ✅ FIXED VALUE CALCULATION
+    total_value = sum(
+        (i.quantity or 0) * (i.price or 0)
+        for i in items
+    )
+
+    # optional breakdown for future charts
+    by_category = {}
+    for i in items:
+        cat = (i.category or "uncategorized").strip() or "uncategorized"
+        by_category[cat] = by_category.get(cat, 0) + (i.quantity or 0)
 
     payload = {
         "range": {"start": start, "end": end},
@@ -279,12 +292,11 @@ async def get_inventory_report(
         "low_stock_items": low_stock_items,
         "out_of_stock": out_of_stock,
         "total_value": total_value,
+        "by_category": by_category,
     }
 
     await cache_set(cache_key, payload, 300)
     return payload
-
-
 # -------------------------------------------------------------
 # Report Notifications + Email helpers
 # -------------------------------------------------------------

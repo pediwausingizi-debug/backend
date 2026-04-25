@@ -18,3 +18,5 @@ reportlab
 apscheduler
 resend
 openai
+google-genai
+python-multipart
