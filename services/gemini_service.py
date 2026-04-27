@@ -62,7 +62,28 @@ TOP CROP PREDICTIONS
 """.strip()
 
 
-def generate_chat_reply(user_message: str, summary: dict, recommendations: dict, predictions: dict) -> str:
+def format_history(history: list | None) -> str:
+    if not history:
+        return "No previous conversation."
+
+    lines = []
+
+    for item in history[-8:]:
+        role = item.get("role", "user")
+        text = item.get("text", "")
+        if text:
+            lines.append(f"{role.upper()}: {text}")
+
+    return "\n".join(lines) if lines else "No previous conversation."
+
+
+def generate_chat_reply(
+    user_message: str,
+    summary: dict,
+    recommendations: dict,
+    predictions: dict,
+    history: list | None = None,
+) -> str:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
@@ -70,15 +91,20 @@ def generate_chat_reply(user_message: str, summary: dict, recommendations: dict,
     client = genai.Client(api_key=api_key)
 
     system_context = build_farm_context(summary, recommendations, predictions)
-
-    prompt = f"""
+    conversation_history = format_history(history)
+prompt = f"""
 {system_context}
+
+RECENT CONVERSATION
+{conversation_history}
 
 USER QUESTION
 {user_message}
 
 INSTRUCTIONS
 - Answer using the farm data above.
+- Use the recent conversation only for context.
+- Do not invent farm records that are not provided.
 - Be useful and direct.
 - When relevant, mention profitability, expenses, risks, or next actions.
 - If the user asks about disease from an image, tell them image analysis is handled separately.
