@@ -643,7 +643,7 @@ class MarketplaceMatch(Base):
 
     listing = relationship("MarketplaceListing", back_populates="matches")
     request = relationship("MarketplaceRequest", back_populates="matches")
-    
+    status = column(string(50), default='pending')
 # =========================================================
 # MARKETPLACE CONVERSATION
 # One chat thread between users around a listing/request/general marketplace talk

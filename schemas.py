@@ -627,14 +627,15 @@ class MarketplaceRequestRead(SafeModel):
 # =====================================================================
 # MARKETPLACE MATCH
 # =====================================================================
-class MarketplaceMatchRead(SafeModel):
+class MarketplaceMatchRead(BaseModel):
     id: int
     listing_id: int
     request_id: int
-    match_score: Optional[float]
-    reason: Optional[str]
+    match_score: float
+    reason: Optional[str] = None
     created_at: datetime
 
+    model_config = ConfigDict(from_attributes=True)
 
 # =====================================================================
 # MARKETPLACE STATUS UPDATE
@@ -726,3 +727,24 @@ class MarketplaceChatBootstrap(SafeModel):
     request_id: Optional[int] = None
     participant_user_id: int
     title: Optional[str] = None
+    
+class MarketplaceMatchStatusUpdate(BaseModel):
+    status: str
+
+
+class MarketplaceMatchAcceptResponse(BaseModel):
+    match: MarketplaceMatchRead
+    conversation: MarketplaceConversationRead
+
+    model_config = ConfigDict(from_attributes=True)
+    
+class MarketplaceMatchRead(BaseModel):
+    id: int
+    listing_id: int
+    request_id: int
+    match_score: float
+    reason: Optional[str] = None
+    status: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
