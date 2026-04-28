@@ -711,7 +711,7 @@ class MarketplaceMessage(Base):
     sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     message_type = Column(String(50), default="text")  # text, image, system
-    content = Column(Text, nullable=False)
+    content = Column(Text, nullable=True)
 
     image_url = Column(String(500))
     image_public_id = Column(String(255))

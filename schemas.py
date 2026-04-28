@@ -625,19 +625,6 @@ class MarketplaceRequestRead(SafeModel):
 
 
 # =====================================================================
-# MARKETPLACE MATCH
-# =====================================================================
-class MarketplaceMatchRead(BaseModel):
-    id: int
-    listing_id: int
-    request_id: int
-    match_score: float
-    reason: Optional[str] = None
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-# =====================================================================
 # MARKETPLACE STATUS UPDATE
 # =====================================================================
 class MarketplaceStatusUpdate(SafeModel):
