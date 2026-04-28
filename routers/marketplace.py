@@ -5,7 +5,7 @@ from typing import List, Optional
 from database import get_db
 from utils.auth_utils import get_current_user
 from services.marketplace_matching import generate_matches_for_request
-from services.marketplace_ai import generate_listing_ai_fields
+from services.marketplace_smart_service import generate_listing_ai_fields
 
 import models
 import schemas
