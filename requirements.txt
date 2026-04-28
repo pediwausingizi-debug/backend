@@ -20,3 +20,4 @@ resend
 openai
 google-genai
 python-multipart
+groq

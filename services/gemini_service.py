@@ -1,7 +1,7 @@
 import os
-from google import genai
+from groq import Groq
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
 
 def build_farm_context(summary: dict, recommendations: dict, predictions: dict) -> str:
@@ -96,40 +96,48 @@ def generate_chat_reply(
     predictions: dict,
     history: list | None = None,
 ) -> str:
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not set")
+        raise RuntimeError("GROQ_API_KEY is not set")
 
-    client = genai.Client(api_key=api_key)
+    client = Groq(api_key=api_key)
 
     system_context = build_farm_context(summary, recommendations, predictions)
     conversation_history = format_history(history)
 
-    prompt = f"""
+    system_prompt = f"""
 {system_context}
 
+INSTRUCTIONS
+- Answer using the farm data above.
+- Use recent conversation only for context.
+- Do not invent farm records that are not provided.
+- Be useful and direct.
+- Mention profitability, expenses, risks, or next actions when relevant.
+- If the user asks about image/disease diagnosis from a photo, say image analysis is currently unavailable.
+- Keep the answer under 180 words.
+""".strip()
+
+    user_prompt = f"""
 RECENT CONVERSATION
 {conversation_history}
 
 USER QUESTION
 {user_message}
-
-INSTRUCTIONS
-- Answer using the farm data above.
-- Use the recent conversation only for context.
-- Do not invent farm records that are not provided.
-- Be useful and direct.
-- When relevant, mention profitability, expenses, risks, or next actions.
-- If the user asks about disease from an image, tell them image analysis is handled separately.
-- Keep the answer under 180 words.
 """.strip()
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
+    response = client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.4,
+        max_tokens=350,
     )
 
-    text = getattr(response, "text", None)
+    text = response.choices[0].message.content if response.choices else None
+
     if text:
         return text.strip()
 

@@ -1,7 +1,7 @@
 import os
 from google import genai
 
-GEMINI_MODEL_VISION = os.getenv("GEMINI_MODEL_VISION", "gemini-3-flash-preview")
+GEMINI_MODEL_VISION = os.getenv("GEMINI_MODEL_VISION", "gemini-2.0-flash-lite")
 
 
 def analyze_farm_image_bytes(
