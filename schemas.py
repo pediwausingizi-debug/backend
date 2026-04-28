@@ -251,7 +251,7 @@ class LivestockCreate(SafeModel):
     age_months: Optional[int] = None
     health_status: Optional[str] = None
     location: Optional[str] = None
-    last_checkup: Optional[date] = None
+    last_checkup: Optional[datetime] = None
 
 
 class LivestockRead(LivestockCreate):
