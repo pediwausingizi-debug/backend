@@ -719,11 +719,7 @@ class MarketplaceMatchStatusUpdate(BaseModel):
     status: str
 
 
-class MarketplaceMatchAcceptResponse(BaseModel):
-    match: MarketplaceMatchRead
-    conversation: MarketplaceConversationRead
 
-    model_config = ConfigDict(from_attributes=True)
     
 class MarketplaceMatchRead(BaseModel):
     id: int
@@ -733,5 +729,11 @@ class MarketplaceMatchRead(BaseModel):
     reason: Optional[str] = None
     status: str
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+    
+class MarketplaceMatchAcceptResponse(BaseModel):
+    match: MarketplaceMatchRead
+    conversation: MarketplaceConversationRead
 
     model_config = ConfigDict(from_attributes=True)
