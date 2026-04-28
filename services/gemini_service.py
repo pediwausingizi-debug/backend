@@ -1,7 +1,7 @@
 import os
 from google import genai
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 
 def build_farm_context(summary: dict, recommendations: dict, predictions: dict) -> str:
