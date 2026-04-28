@@ -98,7 +98,7 @@ async def create_worker(
         farm_id=db_user.farm_id,
         title="Worker added",
         message=f"{db_worker.name} was added to the workers list.",
-        type="worker",
+        notification_type="worker",
         created_by_id=db_user.id,
     )
     db.commit()
@@ -177,7 +177,7 @@ async def update_worker(
         farm_id=db_user.farm_id,
         title="Worker updated",
         message=f"{worker.name}'s details were updated.",
-        type="worker",
+        notification_type="worker",
         created_by_id=db_user.id,
     )
     db.commit()
@@ -240,7 +240,7 @@ async def delete_worker(
         farm_id=db_user.farm_id,
         title="Worker removed",
         message=f"{worker_name} was removed from the workers list.",
-        type="worker",
+        notification_type="worker",
         created_by_id=db_user.id,
     )
     db.commit()
