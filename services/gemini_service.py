@@ -1,8 +1,7 @@
 import os
-from typing import Optional
 from google import genai
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
 
 def build_farm_context(summary: dict, recommendations: dict, predictions: dict) -> str:
@@ -13,13 +12,21 @@ def build_farm_context(summary: dict, recommendations: dict, predictions: dict) 
 
     rec_lines = []
     for item in top_recs:
-        rec_lines.append(f"- [{item.get('severity', 'info').upper()}] {item.get('title')}: {item.get('message')}")
+        rec_lines.append(
+            f"- [{item.get('severity', 'info').upper()}] "
+            f"{item.get('title')}: {item.get('message')}"
+        )
 
     animal_pred_lines = []
     for item in top_animal_preds:
-        animal_name = item.get("name") or item.get("tag_number") or f"Animal #{item.get('animal_id')}"
+        animal_name = (
+            item.get("name")
+            or item.get("tag_number")
+            or f"Animal #{item.get('animal_id')}"
+        )
         animal_pred_lines.append(
-            f"- {animal_name}: predicted monthly income {item.get('predicted_monthly_income', 0):.2f}"
+            f"- {animal_name}: predicted monthly income "
+            f"{float(item.get('predicted_monthly_income', 0) or 0):.2f}"
         )
 
     crop_pred_lines = []
@@ -27,7 +34,8 @@ def build_farm_context(summary: dict, recommendations: dict, predictions: dict) 
         crop_name = item.get("crop_name") or f"Crop Cycle #{item.get('crop_cycle_id')}"
         plot_name = item.get("plot_name") or "Unknown Plot"
         crop_pred_lines.append(
-            f"- {crop_name} in {plot_name}: predicted cycle income {item.get('predicted_cycle_income', 0):.2f}"
+            f"- {crop_name} in {plot_name}: predicted cycle income "
+            f"{float(item.get('predicted_cycle_income', 0) or 0):.2f}"
         )
 
     return f"""
@@ -40,18 +48,18 @@ FARM SUMMARY
 - Animals tracked: {summary.get("animals_tracked", 0)}
 - Plots tracked: {summary.get("plots_tracked", 0)}
 - Crop cycles tracked: {summary.get("crop_cycles_tracked", 0)}
-- Total income: {summary.get("total_income", 0):.2f}
-- Total expenses: {summary.get("total_expenses", 0):.2f}
-- Net profit: {summary.get("net_profit", 0):.2f}
+- Total income: {float(summary.get("total_income", 0) or 0):.2f}
+- Total expenses: {float(summary.get("total_expenses", 0) or 0):.2f}
+- Net profit: {float(summary.get("net_profit", 0) or 0):.2f}
 - Summary: {summary.get("summary", "")}
 
 TOP RECOMMENDATIONS
 {chr(10).join(rec_lines) if rec_lines else "- No recommendations available yet."}
 
 FINANCE PREDICTIONS
-- Predicted monthly revenue: {finance_pred.get("predicted_monthly_revenue", 0):.2f}
-- Predicted monthly expenses: {finance_pred.get("predicted_monthly_expenses", 0):.2f}
-- Predicted net profit: {finance_pred.get("predicted_net_profit", 0):.2f}
+- Predicted monthly revenue: {float(finance_pred.get("predicted_monthly_revenue", 0) or 0):.2f}
+- Predicted monthly expenses: {float(finance_pred.get("predicted_monthly_expenses", 0) or 0):.2f}
+- Predicted net profit: {float(finance_pred.get("predicted_net_profit", 0) or 0):.2f}
 - Method: {finance_pred.get("method", "unknown")}
 
 TOP ANIMAL PREDICTIONS
@@ -69,10 +77,14 @@ def format_history(history: list | None) -> str:
     lines = []
 
     for item in history[-8:]:
+        if not isinstance(item, dict):
+            continue
+
         role = item.get("role", "user")
         text = item.get("text", "")
+
         if text:
-            lines.append(f"{role.upper()}: {text}")
+            lines.append(f"{str(role).upper()}: {text}")
 
     return "\n".join(lines) if lines else "No previous conversation."
 
@@ -92,7 +104,8 @@ def generate_chat_reply(
 
     system_context = build_farm_context(summary, recommendations, predictions)
     conversation_history = format_history(history)
-prompt = f"""
+
+    prompt = f"""
 {system_context}
 
 RECENT CONVERSATION
