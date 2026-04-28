@@ -12,7 +12,7 @@ from models import Base
 start_scheduler()
 
 # -----------------------------------------------------------
-# CREATE DATABASE TABLES (FIX FOR "users table does not exist")
+# CREATE DATABASE TABLES
 # -----------------------------------------------------------
 Base.metadata.create_all(bind=engine)
 
@@ -48,12 +48,9 @@ app = FastAPI(
 # CORS CONFIGURATION
 # -----------------------------------------------------------
 ALLOWED_ORIGINS = [
-    # Local development
     "http://localhost:5173",
     "http://localhost:3000",
     "http://127.0.0.1:5173",
-
-    # Production frontend (Vercel / custom domain)
     "https://farmxpat.com",
     "https://www.farmxpat.com",
 ]
@@ -80,8 +77,10 @@ app.include_router(workers.router, prefix="/api/workers", tags=["workers"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(assistant.router, prefix="/api/assistant", tags=["assistant"])
-app.include_router(marketplace.router, prefix="/api/marketplace", tags=["marketplace"])
 app.include_router(marketplace_chat.router, prefix="/api/marketplace", tags=["marketplace-chat"])
+app.include_router(marketplace.router, prefix="/api/marketplace", tags=["marketplace"])
+
+
 app.include_router(marketplace_ws.router, prefix="/api", tags=["marketplace-ws"])
 
 # -----------------------------------------------------------
