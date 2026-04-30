@@ -737,3 +737,61 @@ class MarketplaceMatchAcceptResponse(BaseModel):
     conversation: MarketplaceConversationRead
 
     model_config = ConfigDict(from_attributes=True)
+    
+# =====================================================================
+# SYSTEM ADMIN ANALYTICS / USER INTERACTIONS
+# =====================================================================
+class UserInteractionCreate(SafeModel):
+    page: str
+    action: Optional[str] = "page_view"
+    details: Optional[str] = None
+
+
+class UserInteractionRead(SafeModel):
+    id: int
+    user_id: Optional[int]
+    farm_id: Optional[int]
+
+    page: str
+    action: Optional[str]
+    details: Optional[str]
+
+    created_at: datetime
+
+
+class PageInteractionSummary(SafeModel):
+    page: str
+    visits: int = 0
+    actions: int = 0
+
+
+class AdminAnalyticsOverview(SafeModel):
+    total_users: int = 0
+    total_farms: int = 0
+    total_interactions: int = 0
+    active_users_today: int = 0
+
+    total_livestock: int = 0
+    total_crops: int = 0
+    total_inventory_items: int = 0
+    total_workers: int = 0
+
+    marketplace_listings: int = 0
+    marketplace_requests: int = 0
+    marketplace_matches: int = 0
+    marketplace_conversations: int = 0
+
+
+class AdminAnalyticsPageStats(SafeModel):
+    pages: List[PageInteractionSummary] = []
+
+
+class AdminRecentInteraction(SafeModel):
+    id: int
+    user_id: Optional[int]
+    farm_id: Optional[int]
+    user_email: Optional[str] = None
+    page: str
+    action: Optional[str]
+    details: Optional[str]
+    created_at: datetime

@@ -534,6 +534,27 @@ class ActivityLog(Base):
     farm = relationship("Farm", back_populates="activity_logs")
     user = relationship("User", back_populates="activity_logs")
     
+    # =========================================================
+# USER INTERACTIONS / SYSTEM ANALYTICS
+# Tracks page visits, feature clicks, and user actions
+# =========================================================
+class UserInteraction(Base):
+    __tablename__ = "user_interactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    farm_id = Column(Integer, ForeignKey("farms.id"), nullable=True)
+
+    page = Column(String(100), nullable=False)       # dashboard, livestock, crops, marketplace
+    action = Column(String(100), default="page_view") # page_view, button_click, create, update, delete
+    details = Column(Text, nullable=True)             # optional JSON/text details
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+    farm = relationship("Farm")
+    
 # =========================================================
 # MARKETPLACE LISTING
 # Smart seller listing
