@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 
 from utils.cache import cache_get, cache_set, cache_delete
 from database import get_db
 from utils.auth_utils import get_current_user
-import models, schemas
+import models
+import schemas
 
 router = APIRouter(
     prefix="",
@@ -34,13 +35,63 @@ def get_farm_user(user_data, db: Session) -> models.User:
 
 
 # ---------------------------------------------------------
+# Internal helper used by other routers
+# Example: workers.py can call create_notification(...)
+# ---------------------------------------------------------
+def create_notification(
+    db: Session,
+    user_id: int,
+    title: str,
+    message: str,
+    type: str = "info",
+    notification_type: Optional[str] = None,
+    farm_id: Optional[int] = None,
+    created_by_id: Optional[int] = None,
+):
+    """
+    Internal helper for creating notifications from other routers.
+
+    Supports both:
+    - type="worker"
+    - notification_type="worker"
+
+    This prevents errors when different routers use different names.
+    """
+
+    final_type = notification_type or type or "info"
+
+    # If farm_id was not passed, get it from the user
+    if farm_id is None:
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        if user:
+            farm_id = user.farm_id
+
+    notif = models.Notification(
+        user_id=user_id,
+        farm_id=farm_id,
+        title=title,
+        message=message,
+        type=final_type,
+        read=False,
+        created_by_id=created_by_id,
+        created_at=datetime.utcnow(),
+    )
+
+    db.add(notif)
+    db.commit()
+    db.refresh(notif)
+
+    return notif
+
+
+# ---------------------------------------------------------
 # GET /notifications/
 # Matches frontend Notification[]
 # ---------------------------------------------------------
 @router.get("/", response_model=List[schemas.NotificationRead])
 async def list_notifications(
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
@@ -68,16 +119,17 @@ async def list_notifications(
 
 # ---------------------------------------------------------
 # POST /notifications/
+# API endpoint for creating notifications manually
 # ---------------------------------------------------------
 @router.post(
     "/",
     response_model=schemas.NotificationRead,
-    status_code=status.HTTP_201_CREATED
+    status_code=status.HTTP_201_CREATED,
 )
-async def create_notification(
+async def create_notification_endpoint(
     payload: schemas.NotificationCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
@@ -85,11 +137,13 @@ async def create_notification(
     if db_user.role not in ["Admin", "Manager"]:
         raise HTTPException(
             status_code=403,
-            detail="Only Admin/Manager can create notifications"
+            detail="Only Admin/Manager can create notifications",
         )
 
+    data = payload.model_dump(exclude_unset=True)
+
     notif = models.Notification(
-        **payload.model_dump(exclude_unset=True),
+        **data,
         farm_id=farm_id,
         created_by_id=db_user.id,
         created_at=datetime.utcnow(),
@@ -121,7 +175,7 @@ async def mark_as_read(
         db.query(models.Notification)
         .filter(
             models.Notification.id == notification_id,
-            models.Notification.farm_id == farm_id
+            models.Notification.farm_id == farm_id,
         )
         .first()
     )
@@ -130,6 +184,7 @@ async def mark_as_read(
         raise HTTPException(status_code=404, detail="Notification not found")
 
     notif.read = True
+
     db.commit()
     db.refresh(notif)
 
