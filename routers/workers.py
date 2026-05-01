@@ -3,9 +3,11 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from utils.notification_utils import create_notification
+from utils.plan_limits import check_feature_limit
 from database import get_db
 from utils.auth_utils import get_current_user
-import models, schemas
+import models
+import schemas
 
 router = APIRouter(
     prefix="",
@@ -27,7 +29,10 @@ def get_db_user(user_data, db: Session) -> models.User:
         raise HTTPException(status_code=404, detail="User not found")
 
     if not db_user.farm_id:
-        raise HTTPException(status_code=400, detail="User is not assigned to any farm")
+        raise HTTPException(
+            status_code=400,
+            detail="User is not assigned to any farm"
+        )
 
     return db_user
 
@@ -40,13 +45,50 @@ def ensure_admin_or_manager(db_user: models.User):
         )
 
 
+def safe_create_worker_notification(
+    db: Session,
+    farm_id: int,
+    title: str,
+    message: str,
+    created_by_id: int,
+):
+    """
+    Worker notification wrapper.
+
+    This prevents worker actions from crashing if notification creation fails.
+    """
+
+    try:
+        create_notification(
+            db=db,
+            farm_id=farm_id,
+            title=title,
+            message=message,
+            type="worker",
+            created_by_id=created_by_id,
+        )
+    except TypeError:
+        try:
+            create_notification(
+                db=db,
+                farm_id=farm_id,
+                title=title,
+                message=message,
+                type="worker",
+            )
+        except Exception as e:
+            print(f"Worker notification failed: {e}")
+    except Exception as e:
+        print(f"Worker notification failed: {e}")
+
+
 # -------------------------------------------------------------------
 # GET workers
 # -------------------------------------------------------------------
 @router.get("/", response_model=List[schemas.WorkerRead])
 async def get_workers(
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_db_user(user, db)
 
@@ -66,14 +108,23 @@ async def get_workers(
 # -------------------------------------------------------------------
 # CREATE worker
 # -------------------------------------------------------------------
-@router.post("/", response_model=schemas.WorkerRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=schemas.WorkerRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_worker(
     worker: schemas.WorkerCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_db_user(user, db)
     ensure_admin_or_manager(db_user)
+
+    # Monetization gate:
+    # Free plan = max 3 workers.
+    # Pro plan = unlimited.
+    check_feature_limit(db, db_user, "workers")
 
     payload = worker.model_dump(exclude_unset=True)
 
@@ -86,22 +137,20 @@ async def create_worker(
     db_worker = models.Worker(
         **payload,
         farm_id=db_user.farm_id,
-        created_by_id=db_user.id
+        created_by_id=db_user.id,
     )
 
     db.add(db_worker)
     db.commit()
     db.refresh(db_worker)
 
-    create_notification(
+    safe_create_worker_notification(
         db=db,
         farm_id=db_user.farm_id,
         title="Worker added",
         message=f"{db_worker.name} was added to the workers list.",
-        notification_type="worker",
         created_by_id=db_user.id,
     )
-    db.commit()
 
     return schemas.WorkerRead.model_validate(db_worker)
 
@@ -113,7 +162,7 @@ async def create_worker(
 async def get_worker(
     worker_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_db_user(user, db)
 
@@ -121,7 +170,7 @@ async def get_worker(
         db.query(models.Worker)
         .filter(
             models.Worker.id == worker_id,
-            models.Worker.farm_id == db_user.farm_id
+            models.Worker.farm_id == db_user.farm_id,
         )
         .first()
     )
@@ -140,7 +189,7 @@ async def update_worker(
     worker_id: int,
     updated_worker: schemas.WorkerCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_db_user(user, db)
     ensure_admin_or_manager(db_user)
@@ -149,7 +198,7 @@ async def update_worker(
         db.query(models.Worker)
         .filter(
             models.Worker.id == worker_id,
-            models.Worker.farm_id == db_user.farm_id
+            models.Worker.farm_id == db_user.farm_id,
         )
         .first()
     )
@@ -172,15 +221,13 @@ async def update_worker(
     db.commit()
     db.refresh(worker)
 
-    create_notification(
+    safe_create_worker_notification(
         db=db,
         farm_id=db_user.farm_id,
         title="Worker updated",
         message=f"{worker.name}'s details were updated.",
-        notification_type="worker",
         created_by_id=db_user.id,
     )
-    db.commit()
 
     return schemas.WorkerRead.model_validate(worker)
 
@@ -206,7 +253,7 @@ async def delete_worker(
         db.query(models.Worker)
         .filter(
             models.Worker.id == worker_id,
-            models.Worker.farm_id == db_user.farm_id
+            models.Worker.farm_id == db_user.farm_id,
         )
         .first()
     )
@@ -216,14 +263,13 @@ async def delete_worker(
 
     worker_name = worker.name
 
-    # Find matching user by email
     matched_user = None
     if worker.email:
         matched_user = (
             db.query(models.User)
             .filter(
                 models.User.email == worker.email,
-                models.User.farm_id == db_user.farm_id
+                models.User.farm_id == db_user.farm_id,
             )
             .first()
         )
@@ -235,14 +281,12 @@ async def delete_worker(
 
     db.commit()
 
-    create_notification(
+    safe_create_worker_notification(
         db=db,
         farm_id=db_user.farm_id,
         title="Worker removed",
         message=f"{worker_name} was removed from the workers list.",
-        notification_type="worker",
         created_by_id=db_user.id,
     )
-    db.commit()
 
     return None

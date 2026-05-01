@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 from utils.cache import cache_get, cache_set, cache_delete
 from database import get_db
 from utils.auth_utils import get_current_user
-import models, schemas
+from utils.plan_limits import check_feature_limit
+import models
+import schemas
 
 router = APIRouter(
     prefix="",
@@ -27,9 +29,22 @@ def get_farm_user(user_data, db: Session) -> models.User:
         raise HTTPException(status_code=404, detail="User not found")
 
     if not db_user.farm_id:
-        raise HTTPException(status_code=400, detail="User is not assigned to any farm")
+        raise HTTPException(
+            status_code=400,
+            detail="User is not assigned to any farm"
+        )
 
     return db_user
+
+
+async def invalidate_inventory_cache(farm_id: int, item_id: int | None = None):
+    await cache_delete(f"inventory:list:farm:{farm_id}")
+    await cache_delete(f"dashboard:stats:farm:{farm_id}")
+    await cache_delete(f"dashboard:alerts:farm:{farm_id}")
+    await cache_delete(f"reports:inventory:farm:{farm_id}")
+
+    if item_id is not None:
+        await cache_delete(f"inventory:item:farm:{farm_id}:{item_id}")
 
 
 # ---------------------------------------------------------
@@ -38,13 +53,14 @@ def get_farm_user(user_data, db: Session) -> models.User:
 @router.get("/", response_model=List[schemas.InventoryRead])
 async def list_inventory(
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
 
     cache_key = f"inventory:list:farm:{farm_id}"
     cached = await cache_get(cache_key)
+
     if cached:
         return cached
 
@@ -61,22 +77,32 @@ async def list_inventory(
     ]
 
     await cache_set(cache_key, serialized)
+
     return serialized
 
 
 # ---------------------------------------------------------
 # POST /inventory/
 # ---------------------------------------------------------
-@router.post("/", response_model=schemas.InventoryRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=schemas.InventoryRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_inventory_item(
     payload: schemas.InventoryCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
 
-    data = payload.model_dump()
+    # Monetization gate:
+    # Free plan = max 20 inventory items.
+    # Pro plan = unlimited.
+    check_feature_limit(db, db_user, "inventory")
+
+    data = payload.model_dump(exclude_unset=True)
 
     quantity = float(data.get("quantity", 0) or 0)
     reorder_level = data.get("reorder_level")
@@ -86,7 +112,10 @@ async def create_inventory_item(
         raise HTTPException(status_code=400, detail="Quantity cannot be negative")
 
     if reorder_level is not None and float(reorder_level) < 0:
-        raise HTTPException(status_code=400, detail="Reorder level cannot be negative")
+        raise HTTPException(
+            status_code=400,
+            detail="Reorder level cannot be negative"
+        )
 
     if price is not None and float(price) < 0:
         raise HTTPException(status_code=400, detail="Price cannot be negative")
@@ -94,17 +123,14 @@ async def create_inventory_item(
     item = models.InventoryItem(
         **data,
         farm_id=farm_id,
-        created_by_id=db_user.id
+        created_by_id=db_user.id,
     )
 
     db.add(item)
     db.commit()
     db.refresh(item)
 
-    await cache_delete(f"inventory:list:farm:{farm_id}")
-    await cache_delete(f"dashboard:stats:farm:{farm_id}")
-    await cache_delete(f"dashboard:alerts:farm:{farm_id}")
-    await cache_delete(f"reports:inventory:farm:{farm_id}")
+    await invalidate_inventory_cache(farm_id)
 
     return schemas.InventoryRead.model_validate(item)
 
@@ -116,13 +142,14 @@ async def create_inventory_item(
 async def get_inventory_item(
     item_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
 
     cache_key = f"inventory:item:farm:{farm_id}:{item_id}"
     cached = await cache_get(cache_key)
+
     if cached:
         return cached
 
@@ -130,7 +157,7 @@ async def get_inventory_item(
         db.query(models.InventoryItem)
         .filter(
             models.InventoryItem.id == item_id,
-            models.InventoryItem.farm_id == farm_id
+            models.InventoryItem.farm_id == farm_id,
         )
         .first()
     )
@@ -139,6 +166,7 @@ async def get_inventory_item(
         raise HTTPException(status_code=404, detail="Item not found")
 
     serialized = schemas.InventoryRead.model_validate(item).model_dump(mode="json")
+
     await cache_set(cache_key, serialized)
 
     return serialized
@@ -153,7 +181,7 @@ async def update_inventory_item(
     item_id: int,
     payload: schemas.InventoryCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
@@ -162,7 +190,7 @@ async def update_inventory_item(
         db.query(models.InventoryItem)
         .filter(
             models.InventoryItem.id == item_id,
-            models.InventoryItem.farm_id == farm_id
+            models.InventoryItem.farm_id == farm_id,
         )
         .first()
     )
@@ -175,13 +203,22 @@ async def update_inventory_item(
     if "quantity" in update_data and float(update_data["quantity"]) < 0:
         raise HTTPException(status_code=400, detail="Quantity cannot be negative")
 
-    if "reorder_level" in update_data and update_data["reorder_level"] is not None:
-        if float(update_data["reorder_level"]) < 0:
-            raise HTTPException(status_code=400, detail="Reorder level cannot be negative")
+    if (
+        "reorder_level" in update_data
+        and update_data["reorder_level"] is not None
+        and float(update_data["reorder_level"]) < 0
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Reorder level cannot be negative"
+        )
 
-    if "price" in update_data and update_data["price"] is not None:
-        if float(update_data["price"]) < 0:
-            raise HTTPException(status_code=400, detail="Price cannot be negative")
+    if (
+        "price" in update_data
+        and update_data["price"] is not None
+        and float(update_data["price"]) < 0
+    ):
+        raise HTTPException(status_code=400, detail="Price cannot be negative")
 
     for k, v in update_data.items():
         setattr(item, k, v)
@@ -189,11 +226,7 @@ async def update_inventory_item(
     db.commit()
     db.refresh(item)
 
-    await cache_delete(f"inventory:list:farm:{farm_id}")
-    await cache_delete(f"inventory:item:farm:{farm_id}:{item_id}")
-    await cache_delete(f"dashboard:stats:farm:{farm_id}")
-    await cache_delete(f"dashboard:alerts:farm:{farm_id}")
-    await cache_delete(f"reports:inventory:farm:{farm_id}")
+    await invalidate_inventory_cache(farm_id, item_id=item_id)
 
     return schemas.InventoryRead.model_validate(item)
 
@@ -205,7 +238,7 @@ async def update_inventory_item(
 async def delete_inventory_item(
     item_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
@@ -214,7 +247,7 @@ async def delete_inventory_item(
         db.query(models.InventoryItem)
         .filter(
             models.InventoryItem.id == item_id,
-            models.InventoryItem.farm_id == farm_id
+            models.InventoryItem.farm_id == farm_id,
         )
         .first()
     )
@@ -225,10 +258,6 @@ async def delete_inventory_item(
     db.delete(item)
     db.commit()
 
-    await cache_delete(f"inventory:list:farm:{farm_id}")
-    await cache_delete(f"inventory:item:farm:{farm_id}:{item_id}")
-    await cache_delete(f"dashboard:stats:farm:{farm_id}")
-    await cache_delete(f"dashboard:alerts:farm:{farm_id}")
-    await cache_delete(f"reports:inventory:farm:{farm_id}")
+    await invalidate_inventory_cache(farm_id, item_id=item_id)
 
     return None

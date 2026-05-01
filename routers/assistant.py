@@ -3,9 +3,11 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from datetime import datetime, time
 
 from database import get_db
 from utils.auth_utils import get_current_user
+from utils.plan_limits import require_pro_feature, is_user_pro
 import models
 
 from services.recommendation_service import build_recommendations
@@ -72,7 +74,10 @@ def build_assistant_summary_data(db: Session, farm_id: int) -> dict:
 
     total_crop_income = (
         db.query(func.sum(models.CropCycleIncome.amount))
-        .join(models.CropCycle, models.CropCycle.id == models.CropCycleIncome.crop_cycle_id)
+        .join(
+            models.CropCycle,
+            models.CropCycle.id == models.CropCycleIncome.crop_cycle_id,
+        )
         .filter(models.CropCycle.farm_id == farm_id)
         .scalar()
         or 0.0
@@ -80,7 +85,10 @@ def build_assistant_summary_data(db: Session, farm_id: int) -> dict:
 
     total_crop_expenses = (
         db.query(func.sum(models.CropCycleExpense.amount))
-        .join(models.CropCycle, models.CropCycle.id == models.CropCycleExpense.crop_cycle_id)
+        .join(
+            models.CropCycle,
+            models.CropCycle.id == models.CropCycleExpense.crop_cycle_id,
+        )
         .filter(models.CropCycle.farm_id == farm_id)
         .scalar()
         or 0.0
@@ -97,13 +105,17 @@ def build_assistant_summary_data(db: Session, farm_id: int) -> dict:
     elif total_expenses > total_income:
         summary_lines.append("The farm is currently spending more than it earns.")
     else:
-        summary_lines.append("The farm is currently at break-even based on recorded income and expenses.")
+        summary_lines.append(
+            "The farm is currently at break-even based on recorded income and expenses."
+        )
 
     if animal_count > 0:
         summary_lines.append(f"There are {animal_count} individual animals being tracked.")
 
     if crop_cycle_count > 0:
-        summary_lines.append(f"There are {crop_cycle_count} crop cycles across {plot_count} plots.")
+        summary_lines.append(
+            f"There are {crop_cycle_count} crop cycles across {plot_count} plots."
+        )
 
     return {
         "farm_id": farm_id,
@@ -132,6 +144,77 @@ def parse_history(history_value) -> list:
             return []
 
     return []
+
+
+def count_ai_messages_today(db: Session, user_id: int) -> int:
+    """
+    Uses UserInteraction table if available.
+    Counts assistant chat messages for current day.
+    """
+
+    start_today = datetime.combine(datetime.utcnow().date(), time.min)
+
+    try:
+        return (
+            db.query(models.UserInteraction)
+            .filter(
+                models.UserInteraction.user_id == user_id,
+                models.UserInteraction.page == "assistant",
+                models.UserInteraction.action == "backend_ai_message",
+                models.UserInteraction.created_at >= start_today,
+            )
+            .count()
+        )
+    except Exception:
+        return 0
+
+
+def log_ai_message_usage(db: Session, user_id: int, farm_id: int):
+    """
+    Logs AI usage so free users can be limited to 5 messages/day.
+    Safe fallback: if logging fails, chat still works unless count already blocked.
+    """
+
+    try:
+        interaction = models.UserInteraction(
+            user_id=user_id,
+            farm_id=farm_id,
+            page="assistant",
+            action="backend_ai_message",
+            details=json.dumps({"source": "backend_ai_limit"}),
+            created_at=datetime.utcnow(),
+        )
+
+        db.add(interaction)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"AI usage logging failed: {e}")
+
+
+def enforce_ai_chat_daily_limit(db: Session, db_user: models.User):
+    """
+    Free plan = 5 AI chat messages per day.
+    Pro plan = unlimited.
+    """
+
+    if is_user_pro(db_user):
+        return
+
+    used_today = count_ai_messages_today(db, db_user.id)
+
+    if used_today >= 5:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "PLAN_LIMIT_REACHED",
+                "feature": "ai_messages_daily",
+                "plan": "free",
+                "current_usage": used_today,
+                "limit": 5,
+                "message": "Free plan AI chat limit reached. Upgrade to Pro for KES 499/month.",
+            },
+        )
 
 
 @router.get("/summary")
@@ -198,6 +281,8 @@ async def chat_assistant(
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
 
+    enforce_ai_chat_daily_limit(db, db_user)
+
     raw_message = (payload.get("message") or "").strip()
     history = parse_history(payload.get("history"))
 
@@ -219,6 +304,8 @@ async def chat_assistant(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gemini failed: {str(e)}")
 
+    log_ai_message_usage(db, db_user.id, farm_id)
+
     return {
         "message": raw_message,
         "reply": reply,
@@ -237,6 +324,10 @@ async def analyze_image(
 ):
     db_user = get_farm_user(user, db)
 
+    # Monetization gate:
+    # Image analysis is Pro-only.
+    require_pro_feature(db_user, "ai_image_analysis")
+
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Only image uploads are allowed")
 
@@ -246,7 +337,10 @@ async def analyze_image(
         raise HTTPException(status_code=400, detail="Uploaded image is empty")
 
     if len(image_bytes) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Image too large. Max 10MB allowed.")
+        raise HTTPException(
+            status_code=400,
+            detail="Image too large. Max 10MB allowed.",
+        )
 
     parsed_history = parse_history(history)
 
@@ -258,7 +352,10 @@ async def analyze_image(
             history=parsed_history,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Image analysis failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Image analysis failed: {str(e)}",
+        )
 
     return {
         "reply": result.get("reply", "I could not analyze this image clearly."),

@@ -40,9 +40,9 @@ def get_farm_user(user_data, db: Session) -> models.User:
 # ---------------------------------------------------------
 def create_notification(
     db: Session,
-    user_id: int,
     title: str,
     message: str,
+    user_id: Optional[int] = None,
     type: str = "info",
     notification_type: Optional[str] = None,
     farm_id: Optional[int] = None,
@@ -51,23 +51,26 @@ def create_notification(
     """
     Internal helper for creating notifications from other routers.
 
-    Supports both:
+    Supports:
     - type="worker"
     - notification_type="worker"
-
-    This prevents errors when different routers use different names.
+    - calls with user_id
+    - calls without user_id but with created_by_id
     """
 
     final_type = notification_type or type or "info"
+    final_user_id = user_id or created_by_id
 
-    # If farm_id was not passed, get it from the user
+    if final_user_id is None:
+        raise ValueError("create_notification requires user_id or created_by_id")
+
     if farm_id is None:
-        user = db.query(models.User).filter(models.User.id == user_id).first()
+        user = db.query(models.User).filter(models.User.id == final_user_id).first()
         if user:
             farm_id = user.farm_id
 
     notif = models.Notification(
-        user_id=user_id,
+        user_id=final_user_id,
         farm_id=farm_id,
         title=title,
         message=message,

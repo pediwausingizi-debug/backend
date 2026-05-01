@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from utils.email_utils import send_email
 from utils.notification_utils import create_notification
 from utils.cache import cache_get, cache_set
+from utils.plan_limits import require_pro_feature
 from database import get_db
 from utils.auth_utils import get_current_user
 import models
@@ -26,15 +27,17 @@ router = APIRouter(
 # Helper → fetch full SQL user + farm
 # -------------------------------------------------------------
 def get_db_user(user_data, db: Session):
-    db_user = db.query(models.User).filter(
-        models.User.id == user_data["user_id"]
-    ).first()
+    db_user = (
+        db.query(models.User)
+        .filter(models.User.id == user_data["user_id"])
+        .first()
+    )
 
     if not db_user:
-        raise HTTPException(404, "User not found")
+        raise HTTPException(status_code=404, detail="User not found")
 
     if not db_user.farm_id:
-        raise HTTPException(400, "User is not assigned to a farm")
+        raise HTTPException(status_code=400, detail="User is not assigned to a farm")
 
     return db_user
 
@@ -48,25 +51,31 @@ def parse_date_range(start: Optional[str], end: Optional[str]):
         return None, None
 
     if not start or not end:
-        raise HTTPException(status_code=400, detail="Provide both start and end (YYYY-MM-DD)")
+        raise HTTPException(
+            status_code=400,
+            detail="Provide both start and end (YYYY-MM-DD)",
+        )
 
     try:
         start_d = datetime.strptime(start, "%Y-%m-%d").date()
         end_d = datetime.strptime(end, "%Y-%m-%d").date()
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date format. Use YYYY-MM-DD",
+        )
 
     if end_d < start_d:
         raise HTTPException(status_code=400, detail="end must be >= start")
 
     start_dt = datetime.combine(start_d, time.min)
     end_dt = datetime.combine(end_d, time.max)
+
     return start_dt, end_dt
 
 
 # -------------------------------------------------------------
-# LIVESTOCK REPORT  →  /api/reports/livestock?start=YYYY-MM-DD&end=YYYY-MM-DD
-# Filters by Livestock.created_at if start/end provided
+# LIVESTOCK REPORT  →  /api/reports/livestock
 # -------------------------------------------------------------
 @router.get("/livestock")
 async def get_livestock_report(
@@ -87,7 +96,6 @@ async def get_livestock_report(
 
     q = db.query(models.Livestock).filter(models.Livestock.farm_id == farm_id)
 
-    # Optional date filtering (created_at exists in your Livestock model)
     if start_dt and end_dt:
         q = q.filter(
             models.Livestock.created_at >= start_dt,
@@ -123,12 +131,12 @@ async def get_livestock_report(
     }
 
     await cache_set(cache_key, payload, 300)
+
     return payload
 
 
 # -------------------------------------------------------------
-# CROPS REPORT  →  /api/reports/crops?start=YYYY-MM-DD&end=YYYY-MM-DD
-# Filters by planting_date if start/end provided
+# CROPS REPORT  →  /api/reports/crops
 # -------------------------------------------------------------
 @router.get("/crops")
 async def get_crops_report(
@@ -149,7 +157,6 @@ async def get_crops_report(
 
     q = db.query(models.Crop).filter(models.Crop.farm_id == farm_id)
 
-    # Optional date filtering by planting_date
     if start_dt and end_dt:
         q = q.filter(models.Crop.planting_date != None)
         q = q.filter(
@@ -184,12 +191,12 @@ async def get_crops_report(
     }
 
     await cache_set(cache_key, payload, 300)
+
     return payload
 
 
 # -------------------------------------------------------------
-# FINANCIAL REPORT  →  /api/reports/financial?start=YYYY-MM-DD&end=YYYY-MM-DD
-# Filters by Transaction.date if start/end provided
+# FINANCIAL REPORT  →  /api/reports/financial
 # -------------------------------------------------------------
 @router.get("/financial")
 async def get_financial_report(
@@ -218,8 +225,18 @@ async def get_financial_report(
 
     transactions = q.all()
 
-    total_income = sum(float(t.amount or 0) for t in transactions if (t.type or "").lower() == "income")
-    total_expenses = sum(float(t.amount or 0) for t in transactions if (t.type or "").lower() == "expense")
+    total_income = sum(
+        float(t.amount or 0)
+        for t in transactions
+        if (t.type or "").lower() == "income"
+    )
+
+    total_expenses = sum(
+        float(t.amount or 0)
+        for t in transactions
+        if (t.type or "").lower() == "expense"
+    )
+
     net_profit = total_income - total_expenses
 
     by_category = {}
@@ -236,6 +253,7 @@ async def get_financial_report(
     }
 
     await cache_set(cache_key, payload, 300)
+
     return payload
 
 
@@ -257,30 +275,34 @@ async def get_inventory_report(
     if cached:
         return cached
 
-    items = db.query(models.InventoryItem).filter(
-        models.InventoryItem.farm_id == farm_id
-    ).all()
+    items = (
+        db.query(models.InventoryItem)
+        .filter(models.InventoryItem.farm_id == farm_id)
+        .all()
+    )
 
     total_items = len(items)
 
-    low_stock_items = len([
-        i for i in items
-        if i.reorder_level is not None
-        and (i.quantity or 0) <= (i.reorder_level or 0)
-    ])
+    low_stock_items = len(
+        [
+            i for i in items
+            if i.reorder_level is not None
+            and (i.quantity or 0) <= (i.reorder_level or 0)
+        ]
+    )
 
-    out_of_stock = len([
-        i for i in items
-        if (i.quantity or 0) == 0
-    ])
+    out_of_stock = len(
+        [
+            i for i in items
+            if (i.quantity or 0) == 0
+        ]
+    )
 
-    # ✅ FIXED VALUE CALCULATION
     total_value = sum(
         (i.quantity or 0) * (i.price or 0)
         for i in items
     )
 
-    # optional breakdown for future charts
     by_category = {}
     for i in items:
         cat = (i.category or "uncategorized").strip() or "uncategorized"
@@ -296,7 +318,10 @@ async def get_inventory_report(
     }
 
     await cache_set(cache_key, payload, 300)
+
     return payload
+
+
 # -------------------------------------------------------------
 # Report Notifications + Email helpers
 # -------------------------------------------------------------
@@ -304,17 +329,15 @@ def send_weekly_report(db, farm, user, pdf_path=None):
     title = "Weekly Farm Report"
     message = "Your weekly farm performance report has been generated."
 
-    # Save notification (ALWAYS)
     create_notification(
         db=db,
         farm_id=farm.id,
         title=title,
         message=message,
         type="weekly_report",
-        created_by_id=None,  # system-generated
+        created_by_id=None,
     )
 
-    # Send email only if enabled
     if user.email_notifications and user.weekly_reports:
         send_email(
             to=user.email,
@@ -325,7 +348,6 @@ def send_weekly_report(db, farm, user, pdf_path=None):
                 "Please find the summary attached.\n\n"
                 "— FarmXpat"
             ),
-            # attachment logic later
         )
 
 
@@ -346,12 +368,18 @@ def send_monthly_report(db, farm, user):
         send_email(
             to=user.email,
             subject=title,
-            body="Your monthly farm report is ready."
+            body="Your monthly farm report is ready.",
         )
+
+
 # -------------------------------------------------------------
 # CSV helpers
 # -------------------------------------------------------------
-def _csv_response(filename: str, rows: list[list], headers: list[str] | None = None) -> Response:
+def _csv_response(
+    filename: str,
+    rows: list[list],
+    headers: list[str] | None = None,
+) -> Response:
     sio = StringIO()
     writer = csv.writer(sio)
 
@@ -362,6 +390,7 @@ def _csv_response(filename: str, rows: list[list], headers: list[str] | None = N
         writer.writerow(r)
 
     csv_text = sio.getvalue()
+
     return Response(
         content=csv_text,
         media_type="text/csv",
@@ -369,6 +398,39 @@ def _csv_response(filename: str, rows: list[list], headers: list[str] | None = N
     )
 
 
+# -------------------------------------------------------------
+# Pro guard for report exports
+# -------------------------------------------------------------
+def require_reports_export_access(user_data, db: Session):
+    db_user = get_db_user(user_data, db)
+    require_pro_feature(db_user, "reports_export")
+    return db_user
+
+@router.post("/test-email")
+async def test_report_email(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    db_user = get_db_user(user, db)
+
+    if not db_user.email:
+        raise HTTPException(status_code=400, detail="User has no email address")
+
+    send_email(
+        to=db_user.email,
+        subject="FarmXpat Test Email",
+        html_body=(
+            f"<h2>FarmXpat Email Test</h2>"
+            f"<p>Hello {db_user.name or db_user.email},</p>"
+            f"<p>Your email service is working correctly.</p>"
+            f"<p>This confirms reports can be sent to your mailbox.</p>"
+        ),
+    )
+
+    return {
+        "message": "Test email sent successfully",
+        "to": db_user.email,
+    }
 # -------------------------------------------------------------
 # LIVESTOCK REPORT CSV  →  /api/reports/livestock.csv
 # -------------------------------------------------------------
@@ -379,7 +441,14 @@ async def get_livestock_report_csv(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    payload = await get_livestock_report(start=start, end=end, db=db, user=user)
+    require_reports_export_access(user, db)
+
+    payload = await get_livestock_report(
+        start=start,
+        end=end,
+        db=db,
+        user=user,
+    )
 
     rows = []
     rows.append(["range_start", payload["range"]["start"] or ""])
@@ -389,14 +458,12 @@ async def get_livestock_report_csv(
     rows.append(["total_count", payload["total_count"]])
     rows.append([])
 
-    # by_type
     rows.append(["by_type", "quantity"])
     for k, v in (payload.get("by_type") or {}).items():
         rows.append([k, v])
 
     rows.append([])
 
-    # health_summary
     rows.append(["health_summary", "quantity"])
     for k, v in (payload.get("health_summary") or {}).items():
         rows.append([k, v])
@@ -414,7 +481,14 @@ async def get_crops_report_csv(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    payload = await get_crops_report(start=start, end=end, db=db, user=user)
+    require_reports_export_access(user, db)
+
+    payload = await get_crops_report(
+        start=start,
+        end=end,
+        db=db,
+        user=user,
+    )
 
     rows = []
     rows.append(["range_start", payload["range"]["start"] or ""])
@@ -424,14 +498,12 @@ async def get_crops_report_csv(
     rows.append(["total_area", payload["total_area"]])
     rows.append([])
 
-    # by_crop
     rows.append(["by_crop", "area_hectares"])
     for k, v in (payload.get("by_crop") or {}).items():
         rows.append([k, v])
 
     rows.append([])
 
-    # harvest_summary
     rows.append(["harvest_summary", "count"])
     for k, v in (payload.get("harvest_summary") or {}).items():
         rows.append([k, v])
@@ -449,7 +521,14 @@ async def get_financial_report_csv(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    payload = await get_financial_report(start=start, end=end, db=db, user=user)
+    require_reports_export_access(user, db)
+
+    payload = await get_financial_report(
+        start=start,
+        end=end,
+        db=db,
+        user=user,
+    )
 
     rows = []
     rows.append(["range_start", payload["range"]["start"] or ""])
@@ -478,7 +557,14 @@ async def get_inventory_report_csv(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    payload = await get_inventory_report(start=start, end=end, db=db, user=user)
+    require_reports_export_access(user, db)
+
+    payload = await get_inventory_report(
+        start=start,
+        end=end,
+        db=db,
+        user=user,
+    )
 
     rows = [
         ["range_start", payload["range"]["start"] or ""],

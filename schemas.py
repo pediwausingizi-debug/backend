@@ -795,3 +795,72 @@ class AdminRecentInteraction(SafeModel):
     action: Optional[str]
     details: Optional[str]
     created_at: datetime
+
+
+class SubscriptionRead(BaseModel):
+    id: int
+    user_id: int
+    farm_id: Optional[int] = None
+    plan: str
+    status: str
+    amount: float
+    currency: str
+    started_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    payment_reference: Optional[str] = None
+    checkout_request_id: Optional[str] = None
+    merchant_request_id: Optional[str] = None
+    created_at: datetime
+
+    model_config = {
+        "from_attributes": True
+    }
+
+
+class PaymentTransactionRead(BaseModel):
+    id: int
+    user_id: int
+    farm_id: Optional[int] = None
+    subscription_id: Optional[int] = None
+
+    provider: str
+    payment_type: str
+    amount: float
+    currency: str
+    phone_number: Optional[str] = None
+
+    status: str
+    checkout_request_id: Optional[str] = None
+    merchant_request_id: Optional[str] = None
+    mpesa_receipt_number: Optional[str] = None
+
+    result_code: Optional[str] = None
+    result_description: Optional[str] = None
+    created_at: datetime
+
+    model_config = {
+        "from_attributes": True
+    }
+
+
+class StartSubscriptionPayment(BaseModel):
+    phone_number: str
+
+
+class SubscriptionStatusRead(BaseModel):
+    plan: str
+    subscription_status: str
+    subscription_started_at: Optional[datetime] = None
+    subscription_expires_at: Optional[datetime] = None
+    is_pro: bool
+    price: float = 499.0
+    currency: str = "KES"
+
+
+class FeatureLimitRead(BaseModel):
+    plan: str
+    feature: str
+    allowed: bool
+    current_usage: int
+    limit: Optional[int] = None
+    message: str

@@ -67,6 +67,10 @@ class User(Base):
     created_notifications = relationship("Notification", back_populates="created_by")
     created_workers = relationship("Worker", back_populates="created_by")
     activity_logs = relationship("ActivityLog", back_populates="user")
+    plan = Column(String, default="free", nullable=False)  # free, pro
+    subscription_status = Column(String, default="inactive", nullable=False)  # inactive, active, expired, cancelled
+    subscription_started_at = Column(DateTime, nullable=True)
+    subscription_expires_at = Column(DateTime, nullable=True)
 
 
 # =========================================================
@@ -554,6 +558,65 @@ class UserInteraction(Base):
 
     user = relationship("User")
     farm = relationship("Farm")
+    
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    farm_id = Column(Integer, ForeignKey("farms.id"), nullable=True)
+
+    plan = Column(String, default="pro", nullable=False)
+    status = Column(String, default="pending", nullable=False)
+    # pending, active, expired, cancelled, failed
+
+    amount = Column(Float, default=499.0, nullable=False)
+    currency = Column(String, default="KES", nullable=False)
+
+    started_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+
+    payment_reference = Column(String, nullable=True)
+    checkout_request_id = Column(String, nullable=True)
+    merchant_request_id = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PaymentTransaction(Base):
+    __tablename__ = "payment_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    farm_id = Column(Integer, ForeignKey("farms.id"), nullable=True)
+    subscription_id = Column(Integer, ForeignKey("subscriptions.id"), nullable=True)
+
+    provider = Column(String, default="mpesa", nullable=False)
+    payment_type = Column(String, default="subscription", nullable=False)
+
+    amount = Column(Float, default=499.0, nullable=False)
+    currency = Column(String, default="KES", nullable=False)
+
+    phone_number = Column(String, nullable=True)
+
+    status = Column(String, default="pending", nullable=False)
+    # pending, success, failed, cancelled
+
+    checkout_request_id = Column(String, nullable=True)
+    merchant_request_id = Column(String, nullable=True)
+    mpesa_receipt_number = Column(String, nullable=True)
+
+    result_code = Column(String, nullable=True)
+    result_description = Column(Text, nullable=True)
+
+    raw_response = Column(Text, nullable=True)
+    raw_callback = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
 # =========================================================
 # MARKETPLACE LISTING

@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from database import get_db
 from utils.auth_utils import get_current_user
+from utils.plan_limits import check_feature_limit
 from services.marketplace_matching import generate_matches_for_request
 from services.marketplace_smart_service import generate_listing_ai_fields
 
@@ -14,9 +15,11 @@ router = APIRouter(prefix="", tags=["marketplace"])
 
 
 def get_db_user(user_data, db: Session) -> models.User:
-    db_user = db.query(models.User).filter(
-        models.User.id == user_data["user_id"]
-    ).first()
+    db_user = (
+        db.query(models.User)
+        .filter(models.User.id == user_data["user_id"])
+        .first()
+    )
 
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -30,7 +33,10 @@ def get_db_user(user_data, db: Session) -> models.User:
 # ---------------------------------------------------------
 # MATCHES
 # ---------------------------------------------------------
-@router.get("/requests/{request_id}/matches", response_model=List[schemas.MarketplaceMatchRead])
+@router.get(
+    "/requests/{request_id}/matches",
+    response_model=List[schemas.MarketplaceMatchRead],
+)
 async def get_request_matches(
     request_id: int,
     db: Session = Depends(get_db),
@@ -38,9 +44,11 @@ async def get_request_matches(
 ):
     db_user = get_db_user(user, db)
 
-    request = db.query(models.MarketplaceRequest).filter(
-        models.MarketplaceRequest.id == request_id
-    ).first()
+    request = (
+        db.query(models.MarketplaceRequest)
+        .filter(models.MarketplaceRequest.id == request_id)
+        .first()
+    )
 
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
@@ -76,7 +84,10 @@ async def get_my_listing_matches(
     return [schemas.MarketplaceMatchRead.model_validate(m) for m in matches]
 
 
-@router.post("/requests/{request_id}/rematch", response_model=List[schemas.MarketplaceMatchRead])
+@router.post(
+    "/requests/{request_id}/rematch",
+    response_model=List[schemas.MarketplaceMatchRead],
+)
 async def rematch_request(
     request_id: int,
     db: Session = Depends(get_db),
@@ -84,9 +95,11 @@ async def rematch_request(
 ):
     db_user = get_db_user(user, db)
 
-    request = db.query(models.MarketplaceRequest).filter(
-        models.MarketplaceRequest.id == request_id
-    ).first()
+    request = (
+        db.query(models.MarketplaceRequest)
+        .filter(models.MarketplaceRequest.id == request_id)
+        .first()
+    )
 
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
@@ -99,7 +112,10 @@ async def rematch_request(
     return [schemas.MarketplaceMatchRead.model_validate(m) for m in matches]
 
 
-@router.post("/matches/{match_id}/accept", response_model=schemas.MarketplaceMatchAcceptResponse)
+@router.post(
+    "/matches/{match_id}/accept",
+    response_model=schemas.MarketplaceMatchAcceptResponse,
+)
 async def accept_marketplace_match(
     match_id: int,
     db: Session = Depends(get_db),
@@ -107,9 +123,11 @@ async def accept_marketplace_match(
 ):
     db_user = get_db_user(user, db)
 
-    match = db.query(models.MarketplaceMatch).filter(
-        models.MarketplaceMatch.id == match_id
-    ).first()
+    match = (
+        db.query(models.MarketplaceMatch)
+        .filter(models.MarketplaceMatch.id == match_id)
+        .first()
+    )
 
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
@@ -147,13 +165,16 @@ async def accept_marketplace_match(
     if existing_conversation:
         match.status = "accepted"
         request.status = "matched"
+
         db.commit()
         db.refresh(match)
         db.refresh(existing_conversation)
 
         return schemas.MarketplaceMatchAcceptResponse(
             match=schemas.MarketplaceMatchRead.model_validate(match),
-            conversation=schemas.MarketplaceConversationRead.model_validate(existing_conversation),
+            conversation=schemas.MarketplaceConversationRead.model_validate(
+                existing_conversation
+            ),
         )
 
     conversation = models.MarketplaceConversation(
@@ -168,16 +189,18 @@ async def accept_marketplace_match(
     db.commit()
     db.refresh(conversation)
 
-    db.add_all([
-        models.MarketplaceConversationParticipant(
-            conversation_id=conversation.id,
-            user_id=buyer_user_id,
-        ),
-        models.MarketplaceConversationParticipant(
-            conversation_id=conversation.id,
-            user_id=seller_user_id,
-        ),
-    ])
+    db.add_all(
+        [
+            models.MarketplaceConversationParticipant(
+                conversation_id=conversation.id,
+                user_id=buyer_user_id,
+            ),
+            models.MarketplaceConversationParticipant(
+                conversation_id=conversation.id,
+                user_id=seller_user_id,
+            ),
+        ]
+    )
 
     db.add(
         models.MarketplaceMessage(
@@ -209,9 +232,11 @@ async def reject_marketplace_match(
 ):
     db_user = get_db_user(user, db)
 
-    match = db.query(models.MarketplaceMatch).filter(
-        models.MarketplaceMatch.id == match_id
-    ).first()
+    match = (
+        db.query(models.MarketplaceMatch)
+        .filter(models.MarketplaceMatch.id == match_id)
+        .first()
+    )
 
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
@@ -229,6 +254,7 @@ async def reject_marketplace_match(
         raise HTTPException(status_code=403, detail="Not allowed to reject this match")
 
     match.status = "rejected"
+
     db.commit()
     db.refresh(match)
 
@@ -257,9 +283,9 @@ async def list_marketplace_listings(
     if q:
         like = f"%{q}%"
         query = query.filter(
-            (models.MarketplaceListing.title.ilike(like)) |
-            (models.MarketplaceListing.description.ilike(like)) |
-            (models.MarketplaceListing.location.ilike(like))
+            (models.MarketplaceListing.title.ilike(like))
+            | (models.MarketplaceListing.description.ilike(like))
+            | (models.MarketplaceListing.location.ilike(like))
         )
 
     items = query.order_by(models.MarketplaceListing.created_at.desc()).all()
@@ -284,7 +310,11 @@ async def get_my_listings(
     return [schemas.MarketplaceListingRead.model_validate(i) for i in items]
 
 
-@router.post("/", response_model=schemas.MarketplaceListingRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=schemas.MarketplaceListingRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_listing(
     payload: schemas.MarketplaceListingCreate,
     db: Session = Depends(get_db),
@@ -292,8 +322,17 @@ async def create_listing(
 ):
     db_user = get_db_user(user, db)
 
+    data = payload.model_dump(exclude_unset=True)
+    listing_status = (data.get("status") or "active").lower()
+
+    # Monetization gate:
+    # Free plan = max 3 active marketplace listings.
+    # Pro plan = unlimited.
+    if listing_status == "active":
+        check_feature_limit(db, db_user, "marketplace_listings")
+
     item = models.MarketplaceListing(
-        **payload.model_dump(exclude_unset=True),
+        **data,
         farm_id=db_user.farm_id,
         created_by_id=db_user.id,
     )
@@ -333,7 +372,11 @@ async def list_requests(
     return [schemas.MarketplaceRequestRead.model_validate(i) for i in items]
 
 
-@router.post("/requests", response_model=schemas.MarketplaceRequestRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/requests",
+    response_model=schemas.MarketplaceRequestRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_request(
     payload: schemas.MarketplaceRequestCreate,
     db: Session = Depends(get_db),
@@ -341,8 +384,17 @@ async def create_request(
 ):
     db_user = get_db_user(user, db)
 
+    data = payload.model_dump(exclude_unset=True)
+    request_status = (data.get("status") or "open").lower()
+
+    # Monetization gate:
+    # Free plan = max 3 open buyer requests.
+    # Pro plan = unlimited.
+    if request_status == "open":
+        check_feature_limit(db, db_user, "buyer_requests")
+
     item = models.MarketplaceRequest(
-        **payload.model_dump(exclude_unset=True),
+        **data,
         farm_id=db_user.farm_id,
         created_by_id=db_user.id,
     )
@@ -364,18 +416,26 @@ async def get_marketplace_insights(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    active_listings = db.query(models.MarketplaceListing).filter(
-        models.MarketplaceListing.status == "active"
-    ).count()
+    active_listings = (
+        db.query(models.MarketplaceListing)
+        .filter(models.MarketplaceListing.status == "active")
+        .count()
+    )
 
-    open_requests = db.query(models.MarketplaceRequest).filter(
-        models.MarketplaceRequest.status == "open"
-    ).count()
+    open_requests = (
+        db.query(models.MarketplaceRequest)
+        .filter(models.MarketplaceRequest.status == "open")
+        .count()
+    )
 
-    high_demand_requests = db.query(models.MarketplaceRequest).filter(
-        models.MarketplaceRequest.status == "open",
-        models.MarketplaceRequest.demand_score >= 70,
-    ).count()
+    high_demand_requests = (
+        db.query(models.MarketplaceRequest)
+        .filter(
+            models.MarketplaceRequest.status == "open",
+            models.MarketplaceRequest.demand_score >= 70,
+        )
+        .count()
+    )
 
     categories = (
         db.query(models.MarketplaceRequest.category)
@@ -384,6 +444,7 @@ async def get_marketplace_insights(
     )
 
     category_counts = {}
+
     for row in categories:
         category = row[0]
         if category:
@@ -398,13 +459,19 @@ async def get_marketplace_insights(
     suggestions = []
 
     if open_requests > active_listings:
-        suggestions.append("There are more buyer requests than active listings. Farmers should consider posting more products.")
+        suggestions.append(
+            "There are more buyer requests than active listings. Farmers should consider posting more products."
+        )
 
     if active_listings == 0:
-        suggestions.append("No active listings are available. Add farm products to make the marketplace useful.")
+        suggestions.append(
+            "No active listings are available. Add farm products to make the marketplace useful."
+        )
 
     if open_requests == 0:
-        suggestions.append("No open buyer requests are available yet. Encourage buyers to post demand.")
+        suggestions.append(
+            "No open buyer requests are available yet. Encourage buyers to post demand."
+        )
 
     return schemas.MarketplaceInsightsRead(
         trending_categories=trending_categories,
@@ -424,9 +491,11 @@ async def get_listing(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    item = db.query(models.MarketplaceListing).filter(
-        models.MarketplaceListing.id == listing_id
-    ).first()
+    item = (
+        db.query(models.MarketplaceListing)
+        .filter(models.MarketplaceListing.id == listing_id)
+        .first()
+    )
 
     if not item:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -443,15 +512,27 @@ async def update_listing(
 ):
     db_user = get_db_user(user, db)
 
-    item = db.query(models.MarketplaceListing).filter(
-        models.MarketplaceListing.id == listing_id,
-        models.MarketplaceListing.farm_id == db_user.farm_id,
-    ).first()
+    item = (
+        db.query(models.MarketplaceListing)
+        .filter(
+            models.MarketplaceListing.id == listing_id,
+            models.MarketplaceListing.farm_id == db_user.farm_id,
+        )
+        .first()
+    )
 
     if not item:
         raise HTTPException(status_code=404, detail="Listing not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+
+    old_status = (item.status or "").lower()
+    new_status = (update_data.get("status") or item.status or "").lower()
+
+    # Prevent bypass:
+    # If user changes a listing from non-active to active, enforce active-listing limit.
+    if old_status != "active" and new_status == "active":
+        check_feature_limit(db, db_user, "marketplace_listings")
 
     for k, v in update_data.items():
         setattr(item, k, v)
@@ -473,13 +554,26 @@ async def update_listing_status(
 ):
     db_user = get_db_user(user, db)
 
-    item = db.query(models.MarketplaceListing).filter(
-        models.MarketplaceListing.id == listing_id,
-        models.MarketplaceListing.farm_id == db_user.farm_id,
-    ).first()
+    item = (
+        db.query(models.MarketplaceListing)
+        .filter(
+            models.MarketplaceListing.id == listing_id,
+            models.MarketplaceListing.farm_id == db_user.farm_id,
+        )
+        .first()
+    )
 
     if not item:
         raise HTTPException(status_code=404, detail="Listing not found")
+
+    old_status = (item.status or "").lower()
+    new_status = (payload.status or "").lower()
+
+    # Prevent bypass:
+    # If user changes a listing from hidden/draft/sold/closed to active,
+    # enforce free-plan active listing limit.
+    if old_status != "active" and new_status == "active":
+        check_feature_limit(db, db_user, "marketplace_listings")
 
     item.status = payload.status
 
@@ -497,10 +591,14 @@ async def delete_listing(
 ):
     db_user = get_db_user(user, db)
 
-    item = db.query(models.MarketplaceListing).filter(
-        models.MarketplaceListing.id == listing_id,
-        models.MarketplaceListing.farm_id == db_user.farm_id,
-    ).first()
+    item = (
+        db.query(models.MarketplaceListing)
+        .filter(
+            models.MarketplaceListing.id == listing_id,
+            models.MarketplaceListing.farm_id == db_user.farm_id,
+        )
+        .first()
+    )
 
     if not item:
         raise HTTPException(status_code=404, detail="Listing not found")

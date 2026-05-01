@@ -1,14 +1,15 @@
 # routers/livestock.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from utils.cache import cache_get, cache_set, cache_delete
 from database import get_db
 from utils.auth_utils import get_current_user
-import models, schemas
+from utils.plan_limits import check_feature_limit
+import models
+import schemas
 
 router = APIRouter(prefix="", tags=["livestock"])
 
@@ -17,7 +18,11 @@ router = APIRouter(prefix="", tags=["livestock"])
 # HELPER
 # =========================================================
 def get_farm_user(user_data, db: Session) -> models.User:
-    db_user = db.query(models.User).filter(models.User.id == user_data["user_id"]).first()
+    db_user = (
+        db.query(models.User)
+        .filter(models.User.id == user_data["user_id"])
+        .first()
+    )
 
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -28,17 +33,43 @@ def get_farm_user(user_data, db: Session) -> models.User:
     return db_user
 
 
+def ensure_animal_belongs_to_farm(
+    db: Session,
+    animal_id: int,
+    farm_id: int,
+) -> models.Animal:
+    animal = (
+        db.query(models.Animal)
+        .filter(
+            models.Animal.id == animal_id,
+            models.Animal.farm_id == farm_id,
+        )
+        .first()
+    )
+
+    if not animal:
+        raise HTTPException(status_code=404, detail="Animal not found")
+
+    return animal
+
+
 # =========================================================
 # ================= LIVESTOCK GROUP ========================
 # =========================================================
 
 @router.get("/", response_model=List[schemas.LivestockRead])
-async def list_livestock(db: Session = Depends(get_db), user=Depends(get_current_user)):
+async def list_livestock(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     db_user = get_farm_user(user, db)
 
-    animals = db.query(models.Livestock).filter(
-        models.Livestock.farm_id == db_user.farm_id
-    ).all()
+    animals = (
+        db.query(models.Livestock)
+        .filter(models.Livestock.farm_id == db_user.farm_id)
+        .order_by(models.Livestock.id.desc())
+        .all()
+    )
 
     return animals
 
@@ -50,6 +81,11 @@ async def create_livestock(
     user=Depends(get_current_user),
 ):
     db_user = get_farm_user(user, db)
+
+    # Monetization gate:
+    # Free plan = max 20 livestock group records.
+    # Pro plan = unlimited.
+    check_feature_limit(db, db_user, "livestock")
 
     obj = models.Livestock(
         **payload.model_dump(exclude_unset=True),
@@ -91,12 +127,18 @@ async def create_animal(
 
 
 @router.get("/animals", response_model=List[schemas.AnimalRead])
-async def list_animals(db: Session = Depends(get_db), user=Depends(get_current_user)):
+async def list_animals(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     db_user = get_farm_user(user, db)
 
-    return db.query(models.Animal).filter(
-        models.Animal.farm_id == db_user.farm_id
-    ).all()
+    return (
+        db.query(models.Animal)
+        .filter(models.Animal.farm_id == db_user.farm_id)
+        .order_by(models.Animal.id.desc())
+        .all()
+    )
 
 
 @router.get("/animals/{animal_id}", response_model=schemas.AnimalRead)
@@ -107,13 +149,11 @@ async def get_animal(
 ):
     db_user = get_farm_user(user, db)
 
-    animal = db.query(models.Animal).filter(
-        models.Animal.id == animal_id,
-        models.Animal.farm_id == db_user.farm_id
-    ).first()
-
-    if not animal:
-        raise HTTPException(status_code=404, detail="Animal not found")
+    animal = ensure_animal_belongs_to_farm(
+        db=db,
+        animal_id=animal_id,
+        farm_id=db_user.farm_id,
+    )
 
     return animal
 
@@ -127,13 +167,11 @@ async def update_animal(
 ):
     db_user = get_farm_user(user, db)
 
-    animal = db.query(models.Animal).filter(
-        models.Animal.id == animal_id,
-        models.Animal.farm_id == db_user.farm_id
-    ).first()
-
-    if not animal:
-        raise HTTPException(status_code=404, detail="Animal not found")
+    animal = ensure_animal_belongs_to_farm(
+        db=db,
+        animal_id=animal_id,
+        farm_id=db_user.farm_id,
+    )
 
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(animal, k, v)
@@ -152,13 +190,11 @@ async def delete_animal(
 ):
     db_user = get_farm_user(user, db)
 
-    animal = db.query(models.Animal).filter(
-        models.Animal.id == animal_id,
-        models.Animal.farm_id == db_user.farm_id
-    ).first()
-
-    if not animal:
-        raise HTTPException(status_code=404, detail="Animal not found")
+    animal = ensure_animal_belongs_to_farm(
+        db=db,
+        animal_id=animal_id,
+        farm_id=db_user.farm_id,
+    )
 
     db.delete(animal)
     db.commit()
@@ -177,25 +213,47 @@ async def add_production(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    get_farm_user(user, db)
+    db_user = get_farm_user(user, db)
+
+    ensure_animal_belongs_to_farm(
+        db=db,
+        animal_id=animal_id,
+        farm_id=db_user.farm_id,
+    )
 
     record = models.AnimalProduction(
         animal_id=animal_id,
         **payload.model_dump(exclude_unset=True),
-        date=datetime.utcnow()
+        date=datetime.utcnow(),
     )
 
     db.add(record)
     db.commit()
+    db.refresh(record)
 
     return {"message": "Production added"}
 
 
 @router.get("/animals/{animal_id}/production")
-async def get_production(animal_id: int, db: Session = Depends(get_db)):
-    return db.query(models.AnimalProduction).filter(
-        models.AnimalProduction.animal_id == animal_id
-    ).all()
+async def get_production(
+    animal_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    db_user = get_farm_user(user, db)
+
+    ensure_animal_belongs_to_farm(
+        db=db,
+        animal_id=animal_id,
+        farm_id=db_user.farm_id,
+    )
+
+    return (
+        db.query(models.AnimalProduction)
+        .filter(models.AnimalProduction.animal_id == animal_id)
+        .order_by(models.AnimalProduction.id.desc())
+        .all()
+    )
 
 
 # =========================================================
@@ -209,25 +267,47 @@ async def add_expense(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    get_farm_user(user, db)
+    db_user = get_farm_user(user, db)
+
+    ensure_animal_belongs_to_farm(
+        db=db,
+        animal_id=animal_id,
+        farm_id=db_user.farm_id,
+    )
 
     expense = models.AnimalExpense(
         animal_id=animal_id,
         **payload.model_dump(exclude_unset=True),
-        date=datetime.utcnow()
+        date=datetime.utcnow(),
     )
 
     db.add(expense)
     db.commit()
+    db.refresh(expense)
 
     return {"message": "Expense added"}
 
 
 @router.get("/animals/{animal_id}/expenses")
-async def get_expenses(animal_id: int, db: Session = Depends(get_db)):
-    return db.query(models.AnimalExpense).filter(
-        models.AnimalExpense.animal_id == animal_id
-    ).all()
+async def get_expenses(
+    animal_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    db_user = get_farm_user(user, db)
+
+    ensure_animal_belongs_to_farm(
+        db=db,
+        animal_id=animal_id,
+        farm_id=db_user.farm_id,
+    )
+
+    return (
+        db.query(models.AnimalExpense)
+        .filter(models.AnimalExpense.animal_id == animal_id)
+        .order_by(models.AnimalExpense.id.desc())
+        .all()
+    )
 
 
 # =========================================================
@@ -241,50 +321,87 @@ async def add_income(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    get_farm_user(user, db)
+    db_user = get_farm_user(user, db)
+
+    ensure_animal_belongs_to_farm(
+        db=db,
+        animal_id=animal_id,
+        farm_id=db_user.farm_id,
+    )
 
     income = models.AnimalIncome(
         animal_id=animal_id,
         **payload.model_dump(exclude_unset=True),
-        date=datetime.utcnow()
+        date=datetime.utcnow(),
     )
 
     db.add(income)
     db.commit()
+    db.refresh(income)
 
     return {"message": "Income added"}
 
 
 @router.get("/animals/{animal_id}/income")
-async def get_income(animal_id: int, db: Session = Depends(get_db)):
-    return db.query(models.AnimalIncome).filter(
-        models.AnimalIncome.animal_id == animal_id
-    ).all()
+async def get_income(
+    animal_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    db_user = get_farm_user(user, db)
+
+    ensure_animal_belongs_to_farm(
+        db=db,
+        animal_id=animal_id,
+        farm_id=db_user.farm_id,
+    )
+
+    return (
+        db.query(models.AnimalIncome)
+        .filter(models.AnimalIncome.animal_id == animal_id)
+        .order_by(models.AnimalIncome.id.desc())
+        .all()
+    )
 
 
 # =========================================================
 # ================= PROFIT SUMMARY ========================
 # =========================================================
 
-@router.get("/animals/{animal_id}/profit-summary", response_model=schemas.AnimalProfitSummary)
+@router.get(
+    "/animals/{animal_id}/profit-summary",
+    response_model=schemas.AnimalProfitSummary,
+)
 async def get_profit_summary(
     animal_id: int,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    get_farm_user(user, db)
+    db_user = get_farm_user(user, db)
 
-    total_income = db.query(func.sum(models.AnimalIncome.amount)).filter(
-        models.AnimalIncome.animal_id == animal_id
-    ).scalar() or 0
+    ensure_animal_belongs_to_farm(
+        db=db,
+        animal_id=animal_id,
+        farm_id=db_user.farm_id,
+    )
 
-    total_expenses = db.query(func.sum(models.AnimalExpense.amount)).filter(
-        models.AnimalExpense.animal_id == animal_id
-    ).scalar() or 0
+    total_income = (
+        db.query(func.sum(models.AnimalIncome.amount))
+        .filter(models.AnimalIncome.animal_id == animal_id)
+        .scalar()
+        or 0
+    )
+
+    total_expenses = (
+        db.query(func.sum(models.AnimalExpense.amount))
+        .filter(models.AnimalExpense.animal_id == animal_id)
+        .scalar()
+        or 0
+    )
 
     return schemas.AnimalProfitSummary(
         animal_id=animal_id,
         total_income=total_income,
         total_expenses=total_expenses,
-        net_profit=total_income - total_expenses
+        net_profit=total_income - total_expenses,
     )

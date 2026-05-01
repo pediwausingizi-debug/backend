@@ -6,7 +6,9 @@ from sqlalchemy import func
 from utils.cache import cache_get, cache_set, cache_delete
 from database import get_db
 from utils.auth_utils import get_current_user
-import models, schemas
+from utils.plan_limits import check_feature_limit
+import models
+import schemas
 
 router = APIRouter(prefix="", tags=["crops"])
 
@@ -35,8 +37,10 @@ def _invalidate_crop_cache(farm_id: int, crop_id: int | None = None):
         f"crops:list:farm:{farm_id}",
         f"dashboard:stats:farm:{farm_id}",
     ]
+
     if crop_id is not None:
         keys.append(f"crops:item:farm:{farm_id}:{crop_id}")
+
     return keys
 
 
@@ -45,8 +49,10 @@ def _invalidate_plot_cache(farm_id: int, plot_id: int | None = None):
         f"plots:list:farm:{farm_id}",
         f"dashboard:stats:farm:{farm_id}",
     ]
+
     if plot_id is not None:
         keys.append(f"plots:item:farm:{farm_id}:{plot_id}")
+
     return keys
 
 
@@ -55,8 +61,10 @@ def _invalidate_crop_cycle_cache(farm_id: int, cycle_id: int | None = None):
         f"crop_cycles:list:farm:{farm_id}",
         f"dashboard:stats:farm:{farm_id}",
     ]
+
     if cycle_id is not None:
         keys.append(f"crop_cycles:item:farm:{farm_id}:{cycle_id}")
+
     return keys
 
 
@@ -74,6 +82,7 @@ async def list_crops(
 
     cache_key = f"crops:list:farm:{farm_id}"
     cached = await cache_get(cache_key)
+
     if cached:
         return cached
 
@@ -90,6 +99,7 @@ async def list_crops(
     ]
 
     await cache_set(cache_key, payload, expire_seconds=120)
+
     return payload
 
 
@@ -102,8 +112,18 @@ async def create_crop(
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
 
+    # Monetization gate:
+    # Free plan = max 10 crop records.
+    # Pro plan = unlimited.
+    check_feature_limit(db, db_user, "crops")
+
     data = payload.model_dump(exclude_unset=True)
-    crop = models.Crop(**data, farm_id=farm_id, created_by_id=db_user.id)
+
+    crop = models.Crop(
+        **data,
+        farm_id=farm_id,
+        created_by_id=db_user.id,
+    )
 
     db.add(crop)
     db.commit()
@@ -126,6 +146,7 @@ async def get_crop(
 
     cache_key = f"crops:item:farm:{farm_id}:{crop_id}"
     cached = await cache_get(cache_key)
+
     if cached:
         return cached
 
@@ -142,7 +163,9 @@ async def get_crop(
         raise HTTPException(status_code=404, detail="Crop not found")
 
     payload = schemas.CropRead.model_validate(crop).model_dump(mode="json")
+
     await cache_set(cache_key, payload, expire_seconds=120)
+
     return payload
 
 
@@ -169,6 +192,7 @@ async def update_crop(
         raise HTTPException(status_code=404, detail="Crop not found")
 
     data = payload.model_dump(exclude_unset=True)
+
     for k, v in data.items():
         setattr(crop, k, v)
 
@@ -225,6 +249,7 @@ async def list_plots(
 
     cache_key = f"plots:list:farm:{farm_id}"
     cached = await cache_get(cache_key)
+
     if cached:
         return cached
 
@@ -241,6 +266,7 @@ async def list_plots(
     ]
 
     await cache_set(cache_key, payload, expire_seconds=120)
+
     return payload
 
 
@@ -280,6 +306,7 @@ async def get_plot(
 
     cache_key = f"plots:item:farm:{farm_id}:{plot_id}"
     cached = await cache_get(cache_key)
+
     if cached:
         return cached
 
@@ -296,7 +323,9 @@ async def get_plot(
         raise HTTPException(status_code=404, detail="Plot not found")
 
     payload = schemas.PlotRead.model_validate(plot).model_dump(mode="json")
+
     await cache_set(cache_key, payload, expire_seconds=120)
+
     return payload
 
 
@@ -323,6 +352,7 @@ async def update_plot(
         raise HTTPException(status_code=404, detail="Plot not found")
 
     data = payload.model_dump(exclude_unset=True)
+
     for k, v in data.items():
         setattr(plot, k, v)
 
@@ -379,6 +409,7 @@ async def list_crop_cycles(
 
     cache_key = f"crop_cycles:list:farm:{farm_id}"
     cached = await cache_get(cache_key)
+
     if cached:
         return cached
 
@@ -395,6 +426,7 @@ async def list_crop_cycles(
     ]
 
     await cache_set(cache_key, payload, expire_seconds=120)
+
     return payload
 
 
@@ -406,6 +438,7 @@ async def create_crop_cycle(
 ):
     db_user = get_farm_user(user, db)
     farm_id = db_user.farm_id
+
     data = payload.model_dump(exclude_unset=True)
 
     crop_id = data.get("crop_id")
@@ -425,6 +458,7 @@ async def create_crop_cycle(
         )
         .first()
     )
+
     if not crop:
         raise HTTPException(status_code=404, detail="Crop not found")
 
@@ -436,6 +470,7 @@ async def create_crop_cycle(
         )
         .first()
     )
+
     if not plot:
         raise HTTPException(status_code=404, detail="Plot not found")
 
@@ -451,6 +486,7 @@ async def create_crop_cycle(
 
     for k in _invalidate_crop_cycle_cache(farm_id):
         await cache_delete(k)
+
     for k in _invalidate_plot_cache(farm_id, plot_id=plot_id):
         await cache_delete(k)
 
@@ -468,6 +504,7 @@ async def get_crop_cycle(
 
     cache_key = f"crop_cycles:item:farm:{farm_id}:{cycle_id}"
     cached = await cache_get(cache_key)
+
     if cached:
         return cached
 
@@ -484,7 +521,9 @@ async def get_crop_cycle(
         raise HTTPException(status_code=404, detail="Crop cycle not found")
 
     payload = schemas.CropCycleRead.model_validate(cycle).model_dump(mode="json")
+
     await cache_set(cache_key, payload, expire_seconds=120)
+
     return payload
 
 
@@ -521,6 +560,7 @@ async def update_crop_cycle(
             )
             .first()
         )
+
         if not crop:
             raise HTTPException(status_code=404, detail="Crop not found")
 
@@ -533,6 +573,7 @@ async def update_crop_cycle(
             )
             .first()
         )
+
         if not plot:
             raise HTTPException(status_code=404, detail="Plot not found")
 
@@ -546,8 +587,10 @@ async def update_crop_cycle(
 
     for k in _invalidate_crop_cycle_cache(farm_id, cycle_id=cycle_id):
         await cache_delete(k)
+
     for k in _invalidate_plot_cache(farm_id, plot_id=old_plot_id):
         await cache_delete(k)
+
     if cycle.plot_id != old_plot_id:
         for k in _invalidate_plot_cache(farm_id, plot_id=cycle.plot_id):
             await cache_delete(k)
@@ -583,6 +626,7 @@ async def delete_crop_cycle(
 
     for k in _invalidate_crop_cycle_cache(farm_id, cycle_id=cycle_id):
         await cache_delete(k)
+
     for k in _invalidate_plot_cache(farm_id, plot_id=plot_id):
         await cache_delete(k)
 
@@ -593,7 +637,11 @@ async def delete_crop_cycle(
 # CROP CYCLE EXPENSES
 # =========================================================
 
-@router.post("/cycles/{cycle_id}/expenses", response_model=schemas.CropCycleExpenseRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/cycles/{cycle_id}/expenses",
+    response_model=schemas.CropCycleExpenseRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def add_crop_cycle_expense(
     cycle_id: int,
     payload: schemas.CropCycleExpenseCreate,
@@ -611,6 +659,7 @@ async def add_crop_cycle_expense(
         )
         .first()
     )
+
     if not cycle:
         raise HTTPException(status_code=404, detail="Crop cycle not found")
 
@@ -629,7 +678,10 @@ async def add_crop_cycle_expense(
     return schemas.CropCycleExpenseRead.model_validate(expense)
 
 
-@router.get("/cycles/{cycle_id}/expenses", response_model=List[schemas.CropCycleExpenseRead])
+@router.get(
+    "/cycles/{cycle_id}/expenses",
+    response_model=List[schemas.CropCycleExpenseRead],
+)
 async def list_crop_cycle_expenses(
     cycle_id: int,
     db: Session = Depends(get_db),
@@ -646,6 +698,7 @@ async def list_crop_cycle_expenses(
         )
         .first()
     )
+
     if not cycle:
         raise HTTPException(status_code=404, detail="Crop cycle not found")
 
@@ -663,7 +716,11 @@ async def list_crop_cycle_expenses(
 # CROP CYCLE INCOME
 # =========================================================
 
-@router.post("/cycles/{cycle_id}/income", response_model=schemas.CropCycleIncomeRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/cycles/{cycle_id}/income",
+    response_model=schemas.CropCycleIncomeRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def add_crop_cycle_income(
     cycle_id: int,
     payload: schemas.CropCycleIncomeCreate,
@@ -681,6 +738,7 @@ async def add_crop_cycle_income(
         )
         .first()
     )
+
     if not cycle:
         raise HTTPException(status_code=404, detail="Crop cycle not found")
 
@@ -699,7 +757,10 @@ async def add_crop_cycle_income(
     return schemas.CropCycleIncomeRead.model_validate(income)
 
 
-@router.get("/cycles/{cycle_id}/income", response_model=List[schemas.CropCycleIncomeRead])
+@router.get(
+    "/cycles/{cycle_id}/income",
+    response_model=List[schemas.CropCycleIncomeRead],
+)
 async def list_crop_cycle_income(
     cycle_id: int,
     db: Session = Depends(get_db),
@@ -716,6 +777,7 @@ async def list_crop_cycle_income(
         )
         .first()
     )
+
     if not cycle:
         raise HTTPException(status_code=404, detail="Crop cycle not found")
 
@@ -733,7 +795,10 @@ async def list_crop_cycle_income(
 # CROP CYCLE PROFIT SUMMARY
 # =========================================================
 
-@router.get("/cycles/{cycle_id}/profit-summary", response_model=schemas.CropCycleProfitSummary)
+@router.get(
+    "/cycles/{cycle_id}/profit-summary",
+    response_model=schemas.CropCycleProfitSummary,
+)
 async def get_crop_cycle_profit_summary(
     cycle_id: int,
     db: Session = Depends(get_db),
@@ -750,6 +815,7 @@ async def get_crop_cycle_profit_summary(
         )
         .first()
     )
+
     if not cycle:
         raise HTTPException(status_code=404, detail="Crop cycle not found")
 

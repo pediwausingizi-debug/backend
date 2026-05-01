@@ -34,6 +34,8 @@ from routers import (
     marketplace_chat,
     marketplace_ws,
     admin_analytics,
+    subscriptions,
+    payments,
 )
 
 # -----------------------------------------------------------
@@ -81,7 +83,12 @@ app.include_router(assistant.router, prefix="/api/assistant", tags=["assistant"]
 app.include_router(marketplace_chat.router, prefix="/api/marketplace", tags=["marketplace-chat"])
 app.include_router(marketplace.router, prefix="/api/marketplace", tags=["marketplace"])
 app.include_router(admin_analytics.router, prefix="/api/admin/analytics", tags=["admin-analytics"])
-
+app.include_router(
+    subscriptions.router,
+    prefix="/api/subscriptions",
+    tags=["subscriptions"]
+)
+app.include_router(payments.router, prefix="/api/payments", tags=["payments"])
 app.include_router(marketplace_ws.router, prefix="/api", tags=["marketplace-ws"])
 
 # -----------------------------------------------------------
